@@ -5,7 +5,7 @@
 
  cd $(dirname $0)
  MODULE_DIR=$(dirname $0)
- VIRTUAL_ENV=$MODULE_DIR/venv
+ VIRTUAL_ENV=$MODULE_DIR/.venv-build
  PYTHON=$VIRTUAL_ENV/bin/python
  ./setup.sh
 
