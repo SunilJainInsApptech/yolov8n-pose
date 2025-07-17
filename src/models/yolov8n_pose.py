@@ -152,6 +152,7 @@ class Yolov8nPose(Vision, EasyResource):
             
             # Handle pose detection with both bounding boxes and keypoints
             if hasattr(result, 'boxes') and result.boxes is not None and hasattr(result, 'keypoints') and result.keypoints is not None:
+                LOGGER.info(f"Found {len(result.boxes)} people with keypoints")
                 for i in range(len(result.boxes)):
                     box = result.boxes.xyxy[i]
                     confidence = result.boxes.conf[i].item()
@@ -161,6 +162,10 @@ class Yolov8nPose(Vision, EasyResource):
                     # Extract keypoints for this person
                     keypoints = result.keypoints.xy[i].cpu().numpy()  # Shape: (17, 2) for COCO pose
                     keypoint_conf = result.keypoints.conf[i].cpu().numpy() if result.keypoints.conf is not None else None
+                    
+                    # Count visible keypoints
+                    visible_keypoints = sum(1 for x, y in keypoints if x > 0 and y > 0)
+                    LOGGER.info(f"Person {i}: {visible_keypoints}/17 keypoints visible")
                     
                     # Format keypoints as a list of dicts
                     keypoint_list = []
