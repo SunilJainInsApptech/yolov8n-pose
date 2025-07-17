@@ -67,7 +67,6 @@ class Yolov8nPose(Vision, EasyResource):
         """
         return super().new(config, dependencies)
 
-    @classmethod
     # Validates JSON Configuration
     @classmethod
     def validate_config(cls, config: ComponentConfig):
@@ -77,45 +76,45 @@ class Yolov8nPose(Vision, EasyResource):
             raise Exception("A model_location must be defined")
         return []
 
-def reconfigure(
-    self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
-):
-    attrs = struct_to_dict(config.attributes)
-    model_location = str(attrs.get("model_location"))
+    def reconfigure(
+        self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
+    ):
+        attrs = struct_to_dict(config.attributes)
+        model_location = str(attrs.get("model_location"))
 
-    LOGGER.debug(f"Configuring yolov8 model with {model_location}")
-    self.DEPS = dependencies
-    self.task = str(attrs.get("task")) or None
+        LOGGER.debug(f"Configuring yolov8 model with {model_location}")
+        self.DEPS = dependencies
+        self.task = str(attrs.get("task")) or None
 
-    if "/" in model_location:
-        if self.is_path(model_location):
-            self.MODEL_PATH = model_location
+        if "/" in model_location:
+            if self.is_path(model_location):
+                self.MODEL_PATH = model_location
+            else:
+                model_name = str(attrs.get("model_name", ""))
+                if model_name == "":
+                    raise Exception(
+                        "model_name attribute is required for downloading models from HuggingFace."
+                    )
+                self.MODEL_REPO = model_location
+                self.MODEL_FILE = model_name
+                self.MODEL_PATH = os.path.abspath(
+                    os.path.join(
+                        MODEL_DIR,
+                        f"{self.MODEL_REPO.replace('/', '_')}_{self.MODEL_FILE}",
+                    )
+                )
+
+                self.get_model()
+
+            self.model = YOLO(self.MODEL_PATH, task=self.task)
         else:
-            model_name = str(attrs.get("model_name", ""))
-            if model_name == "":
-                raise Exception(
-                    "model_name attribute is required for downloading models from HuggingFace."
-                )
-            self.MODEL_REPO = model_location
-            self.MODEL_FILE = model_name
-            self.MODEL_PATH = os.path.abspath(
-                os.path.join(
-                    MODEL_DIR,
-                    f"{self.MODEL_REPO.replace('/', '_')}_{self.MODEL_FILE}",
-                )
-            )
+            self.model = YOLO(model_location, task=self.task)
 
-            self.get_model()
+        self.device = "cpu"
+        if torch.cuda.is_available():
+            self.device = torch.cuda.current_device()
 
-        self.model = YOLO(self.MODEL_PATH, task=self.task)
-    else:
-        self.model = YOLO(model_location, task=self.task)
-
-    self.device = "cpu"
-    if torch.cuda.is_available():
-        self.device = torch.cuda.current_device()
-
-    return
+        return
 
     async def get_cam_image(self, camera_name: str) -> ViamImage:
         actual_cam = self.DEPS[Camera.get_resource_name(camera_name)]
@@ -197,12 +196,12 @@ def reconfigure(
         extra: Optional[Mapping[str, Any]] = None,
         timeout: Optional[float] = None,
     ) -> List[PointCloudObject]:
-        pass
+        return []
 
     async def do_command(
         self, command: Mapping[str, ValueTypes], *, timeout: Optional[float] = None
     ) -> Mapping[str, ValueTypes]:
-        pass
+        return {}
 
     async def capture_all_from_camera(
         self,

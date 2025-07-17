@@ -19,5 +19,16 @@ except ModuleNotFoundError:
     from .models.yolov8n_pose import Yolov8nPose
     logger.info("Yolov8nPose imported successfully from local module.")
 
+async def main():
+    """Main function to set up and run the module."""
+    module = Module.from_args()
+    logger.info(f"Starting module with address: {module.address}")
+    
+    # Register the vision service model
+    module.add_model_from_registry(Vision.SUBTYPE, Yolov8nPose.MODEL)
+    logger.info(f"Registered model: {Yolov8nPose.MODEL}")
+    
+    await module.start()
+
 if __name__ == '__main__':
-    asyncio.run(Module.run_from_registry())
+    asyncio.run(main())
