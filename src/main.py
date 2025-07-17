@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 # Set up logging to see what's happening
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)  # Changed from DEBUG to INFO
 logger = logging.getLogger(__name__)
 
 logger.info("Starting module...")

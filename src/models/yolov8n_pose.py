@@ -146,21 +146,69 @@ class Yolov8nPose(Vision, EasyResource):
     ) -> List[Detection]:
         detections = []
         results = self.model.predict(viam_to_pil_image(image), device=self.device)
+        
         if len(results) >= 1:
-            index = 0
             result = results[0]
-            if result.boxes:
-                for r in result.boxes.xyxy:
+            
+            # Handle pose detection with both bounding boxes and keypoints
+            if hasattr(result, 'boxes') and result.boxes is not None and hasattr(result, 'keypoints') and result.keypoints is not None:
+                for i in range(len(result.boxes)):
+                    box = result.boxes.xyxy[i]
+                    confidence = result.boxes.conf[i].item()
+                    class_id = int(result.boxes.cls[i].item())
+                    class_name = result.names[class_id]
+                    
+                    # Extract keypoints for this person
+                    keypoints = result.keypoints.xy[i].cpu().numpy()  # Shape: (17, 2) for COCO pose
+                    keypoint_conf = result.keypoints.conf[i].cpu().numpy() if result.keypoints.conf is not None else None
+                    
+                    # Format keypoints as a list of dicts
+                    keypoint_list = []
+                    keypoint_names = [
+                        "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+                        "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+                        "left_wrist", "right_wrist", "left_hip", "right_hip",
+                        "left_knee", "right_knee", "left_ankle", "right_ankle"
+                    ]
+                    
+                    for j, (x, y) in enumerate(keypoints):
+                        keypoint_data = {
+                            "name": keypoint_names[j] if j < len(keypoint_names) else f"keypoint_{j}",
+                            "x": float(x),
+                            "y": float(y),
+                            "confidence": float(keypoint_conf[j]) if keypoint_conf is not None else 1.0,
+                            "visible": float(x) > 0 and float(y) > 0  # Simple visibility check
+                        }
+                        keypoint_list.append(keypoint_data)
+                    
                     detection = {
-                        "confidence": result.boxes.conf[index].item(),
-                        "class_name": result.names[result.boxes.cls[index].item()],
-                        "x_min": int(r[0].item()),
-                        "y_min": int(r[1].item()),
-                        "x_max": int(r[2].item()),
-                        "y_max": int(r[3].item()),
+                        "confidence": confidence,
+                        "class_name": class_name,
+                        "x_min": int(box[0].item()),
+                        "y_min": int(box[1].item()),
+                        "x_max": int(box[2].item()),
+                        "y_max": int(box[3].item()),
+                        "keypoints": keypoint_list  # Add keypoints to detection
                     }
                     detections.append(detection)
-                    index = index + 1
+                    
+            # Fallback to regular bounding box detection if no keypoints
+            elif hasattr(result, 'boxes') and result.boxes is not None:
+                for i in range(len(result.boxes)):
+                    box = result.boxes.xyxy[i]
+                    confidence = result.boxes.conf[i].item()
+                    class_id = int(result.boxes.cls[i].item())
+                    class_name = result.names[class_id]
+                    
+                    detection = {
+                        "confidence": confidence,
+                        "class_name": class_name,
+                        "x_min": int(box[0].item()),
+                        "y_min": int(box[1].item()),
+                        "x_max": int(box[2].item()),
+                        "y_max": int(box[3].item()),
+                    }
+                    detections.append(detection)
 
         return detections
 
@@ -207,7 +255,136 @@ class Yolov8nPose(Vision, EasyResource):
     async def do_command(
         self, command: Mapping[str, ValueTypes], *, timeout: Optional[float] = None
     ) -> Mapping[str, ValueTypes]:
-        return {}
+        """Handle custom commands like getting keypoints or pose analysis."""
+        cmd_name = command.get("command")
+        
+        if cmd_name == "get_keypoints":
+            # Get keypoints from camera
+            camera_name = command.get("camera_name", "")
+            if camera_name:
+                image = await self.get_cam_image(camera_name)
+                keypoints = await self.extract_keypoints(image)
+                return {"keypoints": keypoints}
+            else:
+                return {"error": "camera_name required"}
+                
+        elif cmd_name == "get_pose_analysis":
+            # Get pose analysis (angles, distances, etc.)
+            camera_name = command.get("camera_name", "")
+            if camera_name:
+                image = await self.get_cam_image(camera_name)
+                analysis = await self.analyze_pose(image)
+                return {"pose_analysis": analysis}
+            else:
+                return {"error": "camera_name required"}
+        
+        return {"supported_commands": ["get_keypoints", "get_pose_analysis"]}
+
+    async def extract_keypoints(self, image: ViamImage) -> List[dict]:
+        """Extract only keypoints from detected persons."""
+        results = self.model.predict(viam_to_pil_image(image), device=self.device)
+        
+        all_keypoints = []
+        if len(results) >= 1:
+            result = results[0]
+            
+            if hasattr(result, 'keypoints') and result.keypoints is not None:
+                keypoint_names = [
+                    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+                    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+                    "left_wrist", "right_wrist", "left_hip", "right_hip",
+                    "left_knee", "right_knee", "left_ankle", "right_ankle"
+                ]
+                
+                for person_idx in range(len(result.keypoints)):
+                    keypoints = result.keypoints.xy[person_idx].cpu().numpy()
+                    keypoint_conf = result.keypoints.conf[person_idx].cpu().numpy() if result.keypoints.conf is not None else None
+                    
+                    person_keypoints = {
+                        "person_id": person_idx,
+                        "keypoints": []
+                    }
+                    
+                    for j, (x, y) in enumerate(keypoints):
+                        keypoint_data = {
+                            "name": keypoint_names[j] if j < len(keypoint_names) else f"keypoint_{j}",
+                            "x": float(x),
+                            "y": float(y),
+                            "confidence": float(keypoint_conf[j]) if keypoint_conf is not None else 1.0,
+                            "visible": float(x) > 0 and float(y) > 0
+                        }
+                        person_keypoints["keypoints"].append(keypoint_data)
+                    
+                    all_keypoints.append(person_keypoints)
+        
+        return all_keypoints
+
+    async def analyze_pose(self, image: ViamImage) -> List[dict]:
+        """Analyze pose for basic metrics like angles and distances."""
+        keypoints_data = await self.extract_keypoints(image)
+        
+        analyses = []
+        for person_data in keypoints_data:
+            keypoints = {kp["name"]: (kp["x"], kp["y"]) for kp in person_data["keypoints"] if kp["visible"]}
+            
+            analysis = {
+                "person_id": person_data["person_id"],
+                "pose_metrics": {}
+            }
+            
+            # Calculate arm angles if shoulder, elbow, wrist are visible
+            if all(joint in keypoints for joint in ["left_shoulder", "left_elbow", "left_wrist"]):
+                left_arm_angle = self.calculate_angle(
+                    keypoints["left_shoulder"], 
+                    keypoints["left_elbow"], 
+                    keypoints["left_wrist"]
+                )
+                analysis["pose_metrics"]["left_arm_angle"] = left_arm_angle
+            
+            if all(joint in keypoints for joint in ["right_shoulder", "right_elbow", "right_wrist"]):
+                right_arm_angle = self.calculate_angle(
+                    keypoints["right_shoulder"], 
+                    keypoints["right_elbow"], 
+                    keypoints["right_wrist"]
+                )
+                analysis["pose_metrics"]["right_arm_angle"] = right_arm_angle
+            
+            # Calculate body posture
+            if all(joint in keypoints for joint in ["left_shoulder", "right_shoulder", "left_hip", "right_hip"]):
+                shoulder_width = abs(keypoints["left_shoulder"][0] - keypoints["right_shoulder"][0])
+                hip_width = abs(keypoints["left_hip"][0] - keypoints["right_hip"][0])
+                analysis["pose_metrics"]["shoulder_width"] = float(shoulder_width)
+                analysis["pose_metrics"]["hip_width"] = float(hip_width)
+            
+            analyses.append(analysis)
+        
+        return analyses
+
+    def calculate_angle(self, point1, point2, point3):
+        """Calculate angle between three points (point2 is the vertex)."""
+        import math
+        
+        # Vector from point2 to point1
+        v1 = (point1[0] - point2[0], point1[1] - point2[1])
+        # Vector from point2 to point3  
+        v2 = (point3[0] - point2[0], point3[1] - point2[1])
+        
+        # Calculate dot product and magnitudes
+        dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+        magnitude_v1 = math.sqrt(v1[0]**2 + v1[1]**2)
+        magnitude_v2 = math.sqrt(v2[0]**2 + v2[1]**2)
+        
+        # Avoid division by zero
+        if magnitude_v1 == 0 or magnitude_v2 == 0:
+            return 0.0
+        
+        # Calculate angle in radians, then convert to degrees
+        cos_angle = dot_product / (magnitude_v1 * magnitude_v2)
+        cos_angle = max(-1.0, min(1.0, cos_angle))  # Clamp to valid range
+        angle_rad = math.acos(cos_angle)
+        angle_deg = math.degrees(angle_rad)
+        
+        return float(angle_deg)
 
     async def capture_all_from_camera(
         self,
