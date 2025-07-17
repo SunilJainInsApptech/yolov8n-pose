@@ -1,4 +1,2 @@
-
-viam-sdk==0.50.0
-
-typing-extensions
+viam-sdk~=0.43.0
+ultralytics~=8.3.94
