@@ -150,6 +150,15 @@ class Yolov8nPose(Vision, EasyResource):
         if len(results) >= 1:
             result = results[0]
             
+            # Debug logging
+            LOGGER.info(f"Model result attributes: {dir(result)}")
+            LOGGER.info(f"Has boxes: {hasattr(result, 'boxes')}")
+            LOGGER.info(f"Has keypoints: {hasattr(result, 'keypoints')}")
+            if hasattr(result, 'boxes') and result.boxes is not None:
+                LOGGER.info(f"Number of boxes: {len(result.boxes)}")
+            if hasattr(result, 'keypoints') and result.keypoints is not None:
+                LOGGER.info(f"Keypoints shape: {result.keypoints.xy.shape if result.keypoints.xy is not None else 'None'}")
+            
             # Handle pose detection with both bounding boxes and keypoints
             if hasattr(result, 'boxes') and result.boxes is not None and hasattr(result, 'keypoints') and result.keypoints is not None:
                 LOGGER.info(f"Found {len(result.boxes)} people with keypoints")
