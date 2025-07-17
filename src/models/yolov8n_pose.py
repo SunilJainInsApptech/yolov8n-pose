@@ -71,10 +71,16 @@ class Yolov8nPose(Vision, EasyResource):
     @classmethod
     def validate_config(cls, config: ComponentConfig):
         LOGGER.debug("Validating yolov8 service config")
-        model = config.attributes.fields["model_location"].string_value
-        if model == "":
-            raise Exception("A model_location must be defined")
-        return []
+        try:
+            attrs = struct_to_dict(config.attributes)
+            model_location = attrs.get("model_location")
+            if not model_location:
+                raise Exception("A model_location must be defined")
+            LOGGER.debug(f"Validation successful for model_location: {model_location}")
+            return []
+        except Exception as e:
+            LOGGER.error(f"Validation failed: {e}")
+            raise e
 
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
