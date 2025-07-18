@@ -415,18 +415,26 @@ class Yolov8nPose(Vision, EasyResource):
             shoulder_y = (keypoints["left_shoulder"][1] + keypoints["right_shoulder"][1]) / 2
             hip_y = (keypoints["left_hip"][1] + keypoints["right_hip"][1]) / 2
             
+            # Debug logging for pose classification
+            LOGGER.info(f"Person {person_data['person_id']} pose metrics:")
+            LOGGER.info(f"  head_y: {head_y}, shoulder_y: {shoulder_y}, hip_y: {hip_y}")
+            
             # Get knee and ankle positions if available
             knee_y = None
             ankle_y = None
             
             if "left_knee" in keypoints and "right_knee" in keypoints:
                 knee_y = (keypoints["left_knee"][1] + keypoints["right_knee"][1]) / 2
+                LOGGER.info(f"  knee_y: {knee_y}")
             if "left_ankle" in keypoints and "right_ankle" in keypoints:
                 ankle_y = (keypoints["left_ankle"][1] + keypoints["right_ankle"][1]) / 2
+                LOGGER.info(f"  ankle_y: {ankle_y}")
             
             # Calculate body orientation (vertical distance ratios)
             head_to_shoulder = abs(head_y - shoulder_y)
             shoulder_to_hip = abs(shoulder_y - hip_y)
+            
+            LOGGER.info(f"  head_to_shoulder: {head_to_shoulder}, shoulder_to_hip: {shoulder_to_hip}")
             
             # Rule-based classification
             score_standing = 0
@@ -478,15 +486,21 @@ class Yolov8nPose(Vision, EasyResource):
                 "fallen": score_fallen
             }
             
+            # Debug logging for scores
+            LOGGER.info(f"  Classification scores: {scores}")
+            LOGGER.info(f"  Reasoning so far: {classification['reasoning']}")
+            
             max_score = max(scores.values())
             if max_score > 0:
                 pose_class = max(scores.keys(), key=lambda k: scores[k])
                 classification["pose_class"] = pose_class
                 classification["confidence"] = min(max_score / 5.0, 1.0)  # Normalize to 0-1
+                LOGGER.info(f"  Final classification: {pose_class} (confidence: {classification['confidence']})")
             else:
                 classification["pose_class"] = "unknown"
                 classification["confidence"] = 0.0
                 classification["reasoning"].append("Insufficient evidence for any pose class")
+                LOGGER.info(f"  Final classification: unknown")
             
             # Add raw metrics for debugging
             classification["metrics"] = {
