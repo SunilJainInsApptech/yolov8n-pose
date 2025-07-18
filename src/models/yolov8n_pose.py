@@ -168,60 +168,39 @@ class Yolov8nPose(Vision, EasyResource):
                     class_id = int(result.boxes.cls[i].item())
                     class_name = result.names[class_id]
                     
-                    # Extract keypoints for this person
+                    # Extract keypoints for logging
                     keypoints = result.keypoints.xy[i].cpu().numpy()  # Shape: (17, 2) for COCO pose
-                    keypoint_conf = result.keypoints.conf[i].cpu().numpy() if result.keypoints.conf is not None else None
-                    
-                    # Count visible keypoints
                     visible_keypoints = sum(1 for x, y in keypoints if x > 0 and y > 0)
                     LOGGER.info(f"Person {i}: {visible_keypoints}/17 keypoints visible")
                     
-                    # Format keypoints as a list of dicts
-                    keypoint_list = []
-                    keypoint_names = [
-                        "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-                        "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-                        "left_wrist", "right_wrist", "left_hip", "right_hip",
-                        "left_knee", "right_knee", "left_ankle", "right_ankle"
-                    ]
-                    
-                    for j, (x, y) in enumerate(keypoints):
-                        keypoint_data = {
-                            "name": keypoint_names[j] if j < len(keypoint_names) else f"keypoint_{j}",
-                            "x": float(x),
-                            "y": float(y),
-                            "confidence": float(keypoint_conf[j]) if keypoint_conf is not None else 1.0,
-                            "visible": float(x) > 0 and float(y) > 0  # Simple visibility check
-                        }
-                        keypoint_list.append(keypoint_data)
-                    
-                    detection = {
-                        "confidence": confidence,
-                        "class_name": class_name,
-                        "x_min": int(box[0].item()),
-                        "y_min": int(box[1].item()),
-                        "x_max": int(box[2].item()),
-                        "y_max": int(box[3].item()),
-                        "keypoints": keypoint_list  # Add keypoints to detection
-                    }
+                    # Create standard Detection object (no keypoints field)
+                    detection = Detection(
+                        x_min=int(box[0].item()),
+                        y_min=int(box[1].item()),
+                        x_max=int(box[2].item()),
+                        y_max=int(box[3].item()),
+                        confidence=confidence,
+                        class_name=class_name
+                    )
                     detections.append(detection)
                     
             # Fallback to regular bounding box detection if no keypoints
             elif hasattr(result, 'boxes') and result.boxes is not None:
+                LOGGER.info(f"Found {len(result.boxes)} detections (no keypoints)")
                 for i in range(len(result.boxes)):
                     box = result.boxes.xyxy[i]
                     confidence = result.boxes.conf[i].item()
                     class_id = int(result.boxes.cls[i].item())
                     class_name = result.names[class_id]
                     
-                    detection = {
-                        "confidence": confidence,
-                        "class_name": class_name,
-                        "x_min": int(box[0].item()),
-                        "y_min": int(box[1].item()),
-                        "x_max": int(box[2].item()),
-                        "y_max": int(box[3].item()),
-                    }
+                    detection = Detection(
+                        x_min=int(box[0].item()),
+                        y_min=int(box[1].item()),
+                        x_max=int(box[2].item()),
+                        y_max=int(box[3].item()),
+                        confidence=confidence,
+                        class_name=class_name
+                    )
                     detections.append(detection)
 
         return detections
@@ -245,16 +224,20 @@ class Yolov8nPose(Vision, EasyResource):
         timeout: Optional[float] = None,
     ) -> List[Classification]:
         classifications = []
-        results = self.model.predict(viam_to_pil_image(image), device=self.device)
-        if len(results) >= 1:
-            processed_results = postprocess_classify_output(
-                self.model, result=results[0]
-            )
-            for key in processed_results:
-                classifications.append({
-                    "class_name": key,
-                    "confidence": processed_results[key],
-                })
+        
+        # Get pose classifications instead of trying to extract from YOLO classification output
+        keypoints = await self.extract_keypoints(image)
+        pose_classifications = await self.classify_poses(keypoints)
+        
+        # Convert pose classifications to Viam Classification format
+        for pose_class in pose_classifications:
+            if pose_class["pose_class"] != "unknown":
+                classification = Classification(
+                    class_name=pose_class["pose_class"],
+                    confidence=pose_class["confidence"]
+                )
+                classifications.append(classification)
+        
         return classifications
 
     async def get_object_point_clouds(
@@ -291,8 +274,38 @@ class Yolov8nPose(Vision, EasyResource):
                 return {"pose_analysis": analysis}
             else:
                 return {"error": "camera_name required"}
+                
+        elif cmd_name == "get_pose_classifications":
+            # Get detections + keypoints + pose classifications in one call
+            camera_name = command.get("camera_name", "")
+            if camera_name:
+                image = await self.get_cam_image(camera_name)
+                
+                # Get both detections and keypoints
+                detections = await self.get_detections(image)
+                keypoints = await self.extract_keypoints(image)
+                
+                # Classify poses
+                pose_classifications = await self.classify_poses(keypoints)
+                
+                return {
+                    "detections": [
+                        {
+                            "x_min": det.x_min,
+                            "y_min": det.y_min, 
+                            "x_max": det.x_max,
+                            "y_max": det.y_max,
+                            "confidence": det.confidence,
+                            "class_name": det.class_name
+                        } for det in detections
+                    ],
+                    "keypoints": keypoints,
+                    "pose_classifications": pose_classifications
+                }
+            else:
+                return {"error": "camera_name required"}
         
-        return {"supported_commands": ["get_keypoints", "get_pose_analysis"]}
+        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications"]}
 
     async def extract_keypoints(self, image: ViamImage) -> List[dict]:
         """Extract only keypoints from detected persons."""
@@ -373,6 +386,121 @@ class Yolov8nPose(Vision, EasyResource):
             analyses.append(analysis)
         
         return analyses
+
+    async def classify_poses(self, keypoints_data: List[dict]) -> List[dict]:
+        """Classify poses as standing, sitting, crouching, or fallen based on keypoints."""
+        classifications = []
+        
+        for person_data in keypoints_data:
+            keypoints = {kp["name"]: (kp["x"], kp["y"]) for kp in person_data["keypoints"] if kp["visible"]}
+            
+            classification = {
+                "person_id": person_data["person_id"],
+                "pose_class": "unknown",
+                "confidence": 0.0,
+                "reasoning": []
+            }
+            
+            # Check if we have enough keypoints for classification
+            required_points = ["nose", "left_shoulder", "right_shoulder", "left_hip", "right_hip"]
+            missing_points = [point for point in required_points if point not in keypoints]
+            
+            if missing_points:
+                classification["reasoning"].append(f"Missing keypoints: {missing_points}")
+                classifications.append(classification)
+                continue
+            
+            # Calculate body metrics
+            head_y = keypoints["nose"][1]
+            shoulder_y = (keypoints["left_shoulder"][1] + keypoints["right_shoulder"][1]) / 2
+            hip_y = (keypoints["left_hip"][1] + keypoints["right_hip"][1]) / 2
+            
+            # Get knee and ankle positions if available
+            knee_y = None
+            ankle_y = None
+            
+            if "left_knee" in keypoints and "right_knee" in keypoints:
+                knee_y = (keypoints["left_knee"][1] + keypoints["right_knee"][1]) / 2
+            if "left_ankle" in keypoints and "right_ankle" in keypoints:
+                ankle_y = (keypoints["left_ankle"][1] + keypoints["right_ankle"][1]) / 2
+            
+            # Calculate body orientation (vertical distance ratios)
+            head_to_shoulder = abs(head_y - shoulder_y)
+            shoulder_to_hip = abs(shoulder_y - hip_y)
+            
+            # Rule-based classification
+            score_standing = 0
+            score_sitting = 0  
+            score_crouching = 0
+            score_fallen = 0
+            
+            # FALLEN: Check if person is horizontal (head and hip at similar y-level)
+            if abs(head_y - hip_y) < shoulder_to_hip * 0.5:
+                score_fallen += 3
+                classification["reasoning"].append("Head and hip at similar level (horizontal)")
+            
+            # STANDING: Head significantly above hips, knees below hips
+            if head_y < hip_y - shoulder_to_hip * 1.5:  # Head well above hips
+                score_standing += 2
+                classification["reasoning"].append("Head well above hips")
+                
+                if knee_y and knee_y > hip_y:  # Knees below hips
+                    score_standing += 2
+                    classification["reasoning"].append("Knees below hips")
+                    
+                if ankle_y and ankle_y > knee_y:  # Ankles below knees
+                    score_standing += 1
+                    classification["reasoning"].append("Ankles below knees")
+            
+            # SITTING: Hip and knee at similar level, head above hips
+            if knee_y and abs(hip_y - knee_y) < shoulder_to_hip * 0.8:
+                score_sitting += 2
+                classification["reasoning"].append("Hips and knees at similar level")
+                
+                if head_y < hip_y:  # Head above hips
+                    score_sitting += 1
+                    classification["reasoning"].append("Head above hips")
+            
+            # CROUCHING: Knees significantly above hips, but head still visible
+            if knee_y and knee_y < hip_y - shoulder_to_hip * 0.5:
+                score_crouching += 2
+                classification["reasoning"].append("Knees above hips")
+                
+                if head_y < shoulder_y:  # Head above shoulders
+                    score_crouching += 1
+                    classification["reasoning"].append("Head above shoulders")
+            
+            # Determine final classification
+            scores = {
+                "standing": score_standing,
+                "sitting": score_sitting,
+                "crouching": score_crouching,
+                "fallen": score_fallen
+            }
+            
+            max_score = max(scores.values())
+            if max_score > 0:
+                pose_class = max(scores.keys(), key=lambda k: scores[k])
+                classification["pose_class"] = pose_class
+                classification["confidence"] = min(max_score / 5.0, 1.0)  # Normalize to 0-1
+            else:
+                classification["pose_class"] = "unknown"
+                classification["confidence"] = 0.0
+                classification["reasoning"].append("Insufficient evidence for any pose class")
+            
+            # Add raw metrics for debugging
+            classification["metrics"] = {
+                "head_y": float(head_y),
+                "shoulder_y": float(shoulder_y), 
+                "hip_y": float(hip_y),
+                "knee_y": float(knee_y) if knee_y else None,
+                "ankle_y": float(ankle_y) if ankle_y else None,
+                "scores": scores
+            }
+            
+            classifications.append(classification)
+        
+        return classifications
 
     def calculate_angle(self, point1, point2, point3):
         """Calculate angle between three points (point2 is the vertex)."""
