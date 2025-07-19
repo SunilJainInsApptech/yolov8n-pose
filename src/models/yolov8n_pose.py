@@ -97,13 +97,21 @@ class Yolov8nPose(Vision, EasyResource):
         self.task = str(attrs.get("task")) or None
 
         # Load pose classifier if specified
+        LOGGER.info(f"🔍 DEBUG: pose_classifier_path = {pose_classifier_path}")
+        LOGGER.info(f"🔍 DEBUG: pose_classifier_path type = {type(pose_classifier_path)}")
+        LOGGER.info(f"🔍 DEBUG: All attributes = {attrs}")
+        
         if pose_classifier_path:
             try:
                 import joblib
                 classifier_path = os.path.abspath(pose_classifier_path)
-                LOGGER.info(f"Attempting to load ML pose classifier from: {classifier_path}")
+                LOGGER.info(f"🔍 DEBUG: Original path: {pose_classifier_path}")
+                LOGGER.info(f"🔍 DEBUG: Absolute path: {classifier_path}")
+                LOGGER.info(f"🔍 DEBUG: File exists check: {os.path.exists(classifier_path)}")
+                LOGGER.info(f"🔍 DEBUG: Current working directory: {os.getcwd()}")
                 
                 if os.path.exists(classifier_path):
+                    LOGGER.info(f"✅ File found! Loading ML pose classifier from: {classifier_path}")
                     self.pose_classifier = joblib.load(classifier_path)
                     LOGGER.info(f"✅ Successfully loaded ML pose classifier!")
                     LOGGER.info(f"   Model type: {type(self.pose_classifier)}")
@@ -111,12 +119,24 @@ class Yolov8nPose(Vision, EasyResource):
                     LOGGER.info(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
                 else:
                     LOGGER.error(f"❌ Pose classifier file not found: {classifier_path}")
+                    # Try to list directory contents for debugging
+                    try:
+                        parent_dir = os.path.dirname(classifier_path)
+                        if os.path.exists(parent_dir):
+                            files = os.listdir(parent_dir)
+                            LOGGER.error(f"🔍 Directory contents of {parent_dir}: {files}")
+                        else:
+                            LOGGER.error(f"🔍 Parent directory does not exist: {parent_dir}")
+                    except Exception as list_err:
+                        LOGGER.error(f"🔍 Could not list directory: {list_err}")
                     self.pose_classifier = None
             except ImportError:
                 LOGGER.error("❌ joblib not installed - cannot load ML pose classifier")
                 self.pose_classifier = None
             except Exception as e:
                 LOGGER.error(f"❌ Failed to load pose classifier: {e}")
+                import traceback
+                LOGGER.error(f"🔍 Full traceback: {traceback.format_exc()}")
                 self.pose_classifier = None
         else:
             LOGGER.warning("⚠️  No pose_classifier_path specified - ML classification disabled")
