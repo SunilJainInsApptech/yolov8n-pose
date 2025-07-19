@@ -25,6 +25,8 @@ from viam.utils import struct_to_dict
 from ultralytics.engine.results import Results
 from ultralytics import YOLO
 import torch
+import joblib
+import numpy as np
 
 LOGGER = getLogger(__name__)
 
@@ -48,6 +50,7 @@ class Yolov8nPose(Vision, EasyResource):
     MODEL_PATH = os.path.abspath(os.path.join(MODEL_DIR, MODEL_REPO))
 
     model: YOLO
+    pose_classifier: Optional[Any] = None
     device: str
 
     # Constructor
@@ -87,10 +90,32 @@ class Yolov8nPose(Vision, EasyResource):
     ):
         attrs = struct_to_dict(config.attributes)
         model_location = str(attrs.get("model_location"))
+        pose_classifier_path = attrs.get("pose_classifier_path")
 
         LOGGER.debug(f"Configuring yolov8 model with {model_location}")
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
+
+        # Load pose classifier if specified
+        if pose_classifier_path:
+            try:
+                import joblib
+                classifier_path = os.path.abspath(pose_classifier_path)
+                if os.path.exists(classifier_path):
+                    self.pose_classifier = joblib.load(classifier_path)
+                    LOGGER.info(f"Loaded ML pose classifier from {classifier_path}")
+                else:
+                    LOGGER.warning(f"Pose classifier file not found: {classifier_path}")
+                    self.pose_classifier = None
+            except ImportError:
+                LOGGER.error("joblib not installed - cannot load ML pose classifier")
+                self.pose_classifier = None
+            except Exception as e:
+                LOGGER.error(f"Failed to load pose classifier: {e}")
+                self.pose_classifier = None
+        else:
+            LOGGER.info("No pose classifier specified - using rules-based classification")
+            self.pose_classifier = None
 
         if "/" in model_location:
             if self.is_path(model_location):
@@ -398,7 +423,8 @@ class Yolov8nPose(Vision, EasyResource):
                 "person_id": person_data["person_id"],
                 "pose_class": "unknown",
                 "confidence": 0.0,
-                "reasoning": []
+                "reasoning": [],
+                "method": "ml" if self.pose_classifier else "rules_based"
             }
             
             # Check if we have enough keypoints for classification
@@ -410,111 +436,226 @@ class Yolov8nPose(Vision, EasyResource):
                 classifications.append(classification)
                 continue
             
-            # Calculate body metrics
+            # Use ML classifier if available
+            if self.pose_classifier:
+                try:
+                    features = self.extract_pose_features_for_ml(keypoints)
+                    if features is not None:
+                        import numpy as np
+                        features_array = np.array(features).reshape(1, -1)
+                        prediction = self.pose_classifier.predict(features_array)[0]
+                        probabilities = self.pose_classifier.predict_proba(features_array)[0]
+                        
+                        # Get class names from classifier
+                        class_names = self.pose_classifier.classes_
+                        confidence = max(probabilities)
+                        
+                        classification["pose_class"] = prediction
+                        classification["confidence"] = float(confidence)
+                        classification["reasoning"].append(f"ML prediction with {len(features)} features")
+                        
+                        # Add probability distribution for debugging
+                        prob_dict = {class_names[i]: float(probabilities[i]) for i in range(len(class_names))}
+                        classification["probabilities"] = prob_dict
+                        
+                        LOGGER.info(f"ML Classification for person {person_data['person_id']}: {prediction} ({confidence:.3f})")
+                        LOGGER.info(f"Probabilities: {prob_dict}")
+                        
+                        classifications.append(classification)
+                        continue
+                    else:
+                        classification["reasoning"].append("Failed to extract ML features - falling back to rules")
+                except Exception as e:
+                    LOGGER.error(f"ML classification failed: {e}")
+                    classification["reasoning"].append(f"ML classification error: {e}")
+            
+            # Fallback to rules-based classification
+            classification["method"] = "rules_based"
+            classification = await self.classify_pose_rules_based(keypoints, classification)
+            classifications.append(classification)
+        
+        return classifications
+
+    def extract_pose_features_for_ml(self, keypoints: dict) -> Optional[List[float]]:
+        """Extract features for ML classifier (matches training format)."""
+        try:
+            features = []
+            
+            # Check required points
+            required_points = ["nose", "left_shoulder", "right_shoulder", "left_hip", "right_hip"]
+            if not all(point in keypoints for point in required_points):
+                return None
+            
+            # Basic body measurements
             head_y = keypoints["nose"][1]
             shoulder_y = (keypoints["left_shoulder"][1] + keypoints["right_shoulder"][1]) / 2
             hip_y = (keypoints["left_hip"][1] + keypoints["right_hip"][1]) / 2
             
-            # Debug logging for pose classification
-            LOGGER.info(f"Person {person_data['person_id']} pose metrics:")
-            LOGGER.info(f"  head_y: {head_y}, shoulder_y: {shoulder_y}, hip_y: {hip_y}")
+            # Vertical distances (key for pose classification)
+            head_to_shoulder = head_y - shoulder_y
+            shoulder_to_hip = shoulder_y - hip_y
+            head_to_hip = head_y - hip_y
             
-            # Get knee and ankle positions if available
-            knee_y = None
-            ankle_y = None
+            # Body proportions
+            shoulder_width = abs(keypoints["left_shoulder"][0] - keypoints["right_shoulder"][0])
+            hip_width = abs(keypoints["left_hip"][0] - keypoints["right_hip"][0])
             
+            features.extend([
+                head_to_shoulder,    # Negative if head above shoulders (normal)
+                shoulder_to_hip,     # Negative if shoulders above hips (normal)
+                head_to_hip,         # Overall body height
+                shoulder_width,      # Body width at shoulders
+                hip_width,           # Body width at hips
+            ])
+            
+            # Knee positions if available
             if "left_knee" in keypoints and "right_knee" in keypoints:
                 knee_y = (keypoints["left_knee"][1] + keypoints["right_knee"][1]) / 2
-                LOGGER.info(f"  knee_y: {knee_y}")
+                hip_to_knee = hip_y - knee_y
+                features.extend([
+                    hip_to_knee,     # Negative if hips above knees (normal standing)
+                    knee_y           # Absolute knee position
+                ])
+            else:
+                features.extend([0, 0])
+                
+            # Ankle positions if available
             if "left_ankle" in keypoints and "right_ankle" in keypoints:
                 ankle_y = (keypoints["left_ankle"][1] + keypoints["right_ankle"][1]) / 2
-                LOGGER.info(f"  ankle_y: {ankle_y}")
-            
-            # Calculate body orientation (vertical distance ratios)
-            head_to_shoulder = abs(head_y - shoulder_y)
-            shoulder_to_hip = abs(shoulder_y - hip_y)
-            
-            LOGGER.info(f"  head_to_shoulder: {head_to_shoulder}, shoulder_to_hip: {shoulder_to_hip}")
-            
-            # Rule-based classification
-            score_standing = 0
-            score_sitting = 0  
-            score_crouching = 0
-            score_fallen = 0
-            
-            # FALLEN: Check if person is horizontal (head and hip at similar y-level)
-            if abs(head_y - hip_y) < shoulder_to_hip * 0.5:
-                score_fallen += 3
-                classification["reasoning"].append("Head and hip at similar level (horizontal)")
-            
-            # STANDING: Head significantly above hips, knees below hips
-            if head_y < hip_y - shoulder_to_hip * 1.5:  # Head well above hips
-                score_standing += 2
-                classification["reasoning"].append("Head well above hips")
-                
-                if knee_y and knee_y > hip_y:  # Knees below hips
-                    score_standing += 2
-                    classification["reasoning"].append("Knees below hips")
-                    
-                if ankle_y and ankle_y > knee_y:  # Ankles below knees
-                    score_standing += 1
-                    classification["reasoning"].append("Ankles below knees")
-            
-            # SITTING: Hip and knee at similar level, head above hips
-            if knee_y and abs(hip_y - knee_y) < shoulder_to_hip * 0.8:
-                score_sitting += 2
-                classification["reasoning"].append("Hips and knees at similar level")
-                
-                if head_y < hip_y:  # Head above hips
-                    score_sitting += 1
-                    classification["reasoning"].append("Head above hips")
-            
-            # CROUCHING: Knees significantly above hips, but head still visible
-            if knee_y and knee_y < hip_y - shoulder_to_hip * 0.5:
-                score_crouching += 2
-                classification["reasoning"].append("Knees above hips")
-                
-                if head_y < shoulder_y:  # Head above shoulders
-                    score_crouching += 1
-                    classification["reasoning"].append("Head above shoulders")
-            
-            # Determine final classification
-            scores = {
-                "standing": score_standing,
-                "sitting": score_sitting,
-                "crouching": score_crouching,
-                "fallen": score_fallen
-            }
-            
-            # Debug logging for scores
-            LOGGER.info(f"  Classification scores: {scores}")
-            LOGGER.info(f"  Reasoning so far: {classification['reasoning']}")
-            
-            max_score = max(scores.values())
-            if max_score > 0:
-                pose_class = max(scores.keys(), key=lambda k: scores[k])
-                classification["pose_class"] = pose_class
-                classification["confidence"] = min(max_score / 5.0, 1.0)  # Normalize to 0-1
-                LOGGER.info(f"  Final classification: {pose_class} (confidence: {classification['confidence']})")
+                if "left_knee" in keypoints and "right_knee" in keypoints:
+                    knee_y = (keypoints["left_knee"][1] + keypoints["right_knee"][1]) / 2
+                    knee_to_ankle = knee_y - ankle_y
+                    features.extend([knee_to_ankle, ankle_y])
+                else:
+                    features.extend([0, ankle_y])
             else:
-                classification["pose_class"] = "unknown"
-                classification["confidence"] = 0.0
-                classification["reasoning"].append("Insufficient evidence for any pose class")
-                LOGGER.info(f"  Final classification: unknown")
+                features.extend([0, 0])
+                
+            # Body aspect ratio
+            if shoulder_to_hip != 0:
+                features.append(abs(head_to_hip) / abs(shoulder_to_hip))
+            else:
+                features.append(0)
+                
+            # Normalized positions (relative to body height)
+            body_height = abs(head_to_hip) if abs(head_to_hip) > 0 else 1
+            features.extend([
+                head_y / body_height,
+                shoulder_y / body_height, 
+                hip_y / body_height
+            ])
             
-            # Add raw metrics for debugging
-            classification["metrics"] = {
-                "head_y": float(head_y),
-                "shoulder_y": float(shoulder_y), 
-                "hip_y": float(hip_y),
-                "knee_y": float(knee_y) if knee_y else None,
-                "ankle_y": float(ankle_y) if ankle_y else None,
-                "scores": scores
-            }
+            return features
             
-            classifications.append(classification)
+        except Exception as e:
+            LOGGER.error(f"Feature extraction failed: {e}")
+            return None
+
+    async def classify_pose_rules_based(self, keypoints: dict, classification: dict) -> dict:
+        """Rules-based pose classification (fallback method)."""
+        # Calculate body metrics
+        head_y = keypoints["nose"][1]
+        shoulder_y = (keypoints["left_shoulder"][1] + keypoints["right_shoulder"][1]) / 2
+        hip_y = (keypoints["left_hip"][1] + keypoints["right_hip"][1]) / 2
         
-        return classifications
+        # Debug logging for pose classification
+        LOGGER.info(f"Person {classification['person_id']} pose metrics:")
+        LOGGER.info(f"  head_y: {head_y}, shoulder_y: {shoulder_y}, hip_y: {hip_y}")
+        
+        # Get knee and ankle positions if available
+        knee_y = None
+        ankle_y = None
+        
+        if "left_knee" in keypoints and "right_knee" in keypoints:
+            knee_y = (keypoints["left_knee"][1] + keypoints["right_knee"][1]) / 2
+            LOGGER.info(f"  knee_y: {knee_y}")
+        if "left_ankle" in keypoints and "right_ankle" in keypoints:
+            ankle_y = (keypoints["left_ankle"][1] + keypoints["right_ankle"][1]) / 2
+            LOGGER.info(f"  ankle_y: {ankle_y}")
+        
+        # Calculate body orientation (vertical distance ratios)
+        head_to_shoulder = abs(head_y - shoulder_y)
+        shoulder_to_hip = abs(shoulder_y - hip_y)
+        
+        LOGGER.info(f"  head_to_shoulder: {head_to_shoulder}, shoulder_to_hip: {shoulder_to_hip}")
+        
+        # Rule-based classification
+        score_standing = 0
+        score_sitting = 0  
+        score_crouching = 0
+        score_fallen = 0
+        
+        # FALLEN: Check if person is horizontal (head and hip at similar y-level)
+        if abs(head_y - hip_y) < shoulder_to_hip * 0.5:
+            score_fallen += 3
+            classification["reasoning"].append("Head and hip at similar level (horizontal)")
+        
+        # STANDING: Head significantly above hips, knees below hips
+        if head_y < hip_y - shoulder_to_hip * 1.5:  # Head well above hips
+            score_standing += 2
+            classification["reasoning"].append("Head well above hips")
+            
+            if knee_y and knee_y > hip_y:  # Knees below hips
+                score_standing += 2
+                classification["reasoning"].append("Knees below hips")
+                
+            if ankle_y and ankle_y > knee_y:  # Ankles below knees
+                score_standing += 1
+                classification["reasoning"].append("Ankles below knees")
+        
+        # SITTING: Hip and knee at similar level, head above hips
+        if knee_y and abs(hip_y - knee_y) < shoulder_to_hip * 0.8:
+            score_sitting += 2
+            classification["reasoning"].append("Hips and knees at similar level")
+            
+            if head_y < hip_y:  # Head above hips
+                score_sitting += 1
+                classification["reasoning"].append("Head above hips")
+        
+        # CROUCHING: Knees significantly above hips, but head still visible
+        if knee_y and knee_y < hip_y - shoulder_to_hip * 0.5:
+            score_crouching += 2
+            classification["reasoning"].append("Knees above hips")
+            
+            if head_y < shoulder_y:  # Head above shoulders
+                score_crouching += 1
+                classification["reasoning"].append("Head above shoulders")
+        
+        # Determine final classification
+        scores = {
+            "standing": score_standing,
+            "sitting": score_sitting,
+            "crouching": score_crouching,
+            "fallen": score_fallen
+        }
+        
+        # Debug logging for scores
+        LOGGER.info(f"  Classification scores: {scores}")
+        LOGGER.info(f"  Reasoning so far: {classification['reasoning']}")
+        
+        max_score = max(scores.values())
+        if max_score > 0:
+            pose_class = max(scores.keys(), key=lambda k: scores[k])
+            classification["pose_class"] = pose_class
+            classification["confidence"] = min(max_score / 5.0, 1.0)  # Normalize to 0-1
+            LOGGER.info(f"  Final classification: {pose_class} (confidence: {classification['confidence']})")
+        else:
+            classification["pose_class"] = "unknown"
+            classification["confidence"] = 0.0
+            classification["reasoning"].append("Insufficient evidence for any pose class")
+            LOGGER.info(f"  Final classification: unknown")
+        
+        # Add raw metrics for debugging
+        classification["metrics"] = {
+            "head_y": float(head_y),
+            "shoulder_y": float(shoulder_y), 
+            "hip_y": float(hip_y),
+            "knee_y": float(knee_y) if knee_y else None,
+            "ankle_y": float(ankle_y) if ankle_y else None,
+            "scores": scores
+        }
+        
+        return classification
 
     def calculate_angle(self, point1, point2, point3):
         """Calculate angle between three points (point2 is the vertex)."""
