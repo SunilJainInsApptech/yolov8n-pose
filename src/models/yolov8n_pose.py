@@ -101,20 +101,25 @@ class Yolov8nPose(Vision, EasyResource):
             try:
                 import joblib
                 classifier_path = os.path.abspath(pose_classifier_path)
+                LOGGER.info(f"Attempting to load ML pose classifier from: {classifier_path}")
+                
                 if os.path.exists(classifier_path):
                     self.pose_classifier = joblib.load(classifier_path)
-                    LOGGER.info(f"Loaded ML pose classifier from {classifier_path}")
+                    LOGGER.info(f"✅ Successfully loaded ML pose classifier!")
+                    LOGGER.info(f"   Model type: {type(self.pose_classifier)}")
+                    LOGGER.info(f"   Classes: {getattr(self.pose_classifier, 'classes_', 'Unknown')}")
+                    LOGGER.info(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
                 else:
-                    LOGGER.warning(f"Pose classifier file not found: {classifier_path}")
+                    LOGGER.error(f"❌ Pose classifier file not found: {classifier_path}")
                     self.pose_classifier = None
             except ImportError:
-                LOGGER.error("joblib not installed - cannot load ML pose classifier")
+                LOGGER.error("❌ joblib not installed - cannot load ML pose classifier")
                 self.pose_classifier = None
             except Exception as e:
-                LOGGER.error(f"Failed to load pose classifier: {e}")
+                LOGGER.error(f"❌ Failed to load pose classifier: {e}")
                 self.pose_classifier = None
         else:
-            LOGGER.info("No pose classifier specified - using rules-based classification")
+            LOGGER.warning("⚠️  No pose_classifier_path specified - ML classification disabled")
             self.pose_classifier = None
 
         if "/" in model_location:
@@ -436,7 +441,7 @@ class Yolov8nPose(Vision, EasyResource):
                 classifications.append(classification)
                 continue
             
-            # Use ML classifier if available
+            # Use ML classifier if available - NO FALLBACK TO RULES
             if self.pose_classifier:
                 try:
                     features = self.extract_pose_features_for_ml(keypoints)
@@ -458,20 +463,43 @@ class Yolov8nPose(Vision, EasyResource):
                         prob_dict = {class_names[i]: float(probabilities[i]) for i in range(len(class_names))}
                         classification["probabilities"] = prob_dict
                         
+                        # Add feature values for debugging
+                        feature_names = [
+                            'head_to_shoulder', 'shoulder_to_hip', 'head_to_hip',
+                            'shoulder_width', 'hip_width', 'hip_to_knee', 'knee_y',
+                            'knee_to_ankle', 'ankle_y', 'aspect_ratio', 
+                            'norm_head_y', 'norm_shoulder_y', 'norm_hip_y'
+                        ]
+                        feature_debug = {feature_names[i]: float(features[i]) for i in range(len(features))}
+                        classification["features"] = feature_debug
+                        
                         LOGGER.info(f"ML Classification for person {person_data['person_id']}: {prediction} ({confidence:.3f})")
                         LOGGER.info(f"Probabilities: {prob_dict}")
+                        LOGGER.info(f"Features used: {feature_debug}")
                         
                         classifications.append(classification)
                         continue
                     else:
-                        classification["reasoning"].append("Failed to extract ML features - falling back to rules")
+                        classification["reasoning"].append("Failed to extract ML features - insufficient keypoints")
+                        classification["pose_class"] = "unknown"
+                        classification["confidence"] = 0.0
+                        LOGGER.warning(f"Could not extract features for person {person_data['person_id']}")
+                        classifications.append(classification)
+                        continue
                 except Exception as e:
                     LOGGER.error(f"ML classification failed: {e}")
                     classification["reasoning"].append(f"ML classification error: {e}")
+                    classification["pose_class"] = "error"
+                    classification["confidence"] = 0.0
+                    classifications.append(classification)
+                    continue
             
-            # Fallback to rules-based classification
-            classification["method"] = "rules_based"
-            classification = await self.classify_pose_rules_based(keypoints, classification)
+            # NO ML CLASSIFIER AVAILABLE
+            classification["method"] = "no_classifier"
+            classification["pose_class"] = "unknown"
+            classification["confidence"] = 0.0
+            classification["reasoning"].append("No ML classifier loaded - rules-based disabled")
+            LOGGER.warning("No ML classifier available and rules-based classification disabled")
             classifications.append(classification)
         
         return classifications
