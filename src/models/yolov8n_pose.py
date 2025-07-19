@@ -88,9 +88,16 @@ class Yolov8nPose(Vision, EasyResource):
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
+        LOGGER.info("🔥 RECONFIGURE CALLED - Starting configuration process")
         attrs = struct_to_dict(config.attributes)
+        LOGGER.info(f"🔥 RAW CONFIG ATTRIBUTES: {attrs}")
+        LOGGER.info(f"🔥 CONFIG ATTRIBUTES TYPE: {type(attrs)}")
+        
         model_location = str(attrs.get("model_location"))
         pose_classifier_path = attrs.get("pose_classifier_path")
+        
+        LOGGER.info(f"🔥 model_location: {model_location}")
+        LOGGER.info(f"🔥 pose_classifier_path: {pose_classifier_path}")
 
         LOGGER.debug(f"Configuring yolov8 model with {model_location}")
         self.DEPS = dependencies
