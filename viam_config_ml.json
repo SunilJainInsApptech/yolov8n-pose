@@ -15,7 +15,7 @@
       "model": "rig-guardian:yolov8n-pose:yolov8n-pose",
       "attributes": {
         "model_location": "yolov8n-pose.pt",
-        "pose_classifier_path": "pose_classifier.joblib"
+        "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib"
       }
     }
   ],
