@@ -88,13 +88,18 @@ class Yolov8nPose(Vision, EasyResource):
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
+        LOGGER.error(f"🔥 RAW CONFIG OBJECT TYPE: {type(config)}")
+        LOGGER.error(f"🔥 RAW CONFIG.ATTRIBUTES TYPE: {type(config.attributes)}")
+        LOGGER.error(f"🔥 RAW CONFIG.ATTRIBUTES: {config.attributes}")
+        
         attrs = struct_to_dict(config.attributes)
         model_location = str(attrs.get("model_location"))
-        pose_classifier_path = attrs.get("pose_classifier_path")
+        pose_classifier_path = str(attrs.get("pose_classifier_path"))
 
         LOGGER.debug(f"Configuring yolov8 model with {model_location}")
-        LOGGER.info(f"🔍 FULL CONFIG ATTRIBUTES: {attrs}")
-        LOGGER.info(f"🎯 Pose classifier path from config: {pose_classifier_path}")
+        LOGGER.error(f"�🔥🔥 FULL CONFIG ATTRIBUTES RECEIVED: {attrs}")
+        LOGGER.error(f"🔥🔥🔥 POSE CLASSIFIER PATH FROM CLOUD: {pose_classifier_path}")
+        LOGGER.error(f"🔥🔥🔥 AVAILABLE KEYS: {list(attrs.keys())}")
         
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
