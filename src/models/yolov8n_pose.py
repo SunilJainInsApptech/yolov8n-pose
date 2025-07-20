@@ -93,7 +93,8 @@ class Yolov8nPose(Vision, EasyResource):
         pose_classifier_path = attrs.get("pose_classifier_path")
 
         LOGGER.debug(f"Configuring yolov8 model with {model_location}")
-        LOGGER.info(f"Pose classifier path: {pose_classifier_path}")
+        LOGGER.info(f"🔍 FULL CONFIG ATTRIBUTES: {attrs}")
+        LOGGER.info(f"🎯 Pose classifier path from config: {pose_classifier_path}")
         
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
