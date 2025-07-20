@@ -88,37 +88,25 @@ class Yolov8nPose(Vision, EasyResource):
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
-        LOGGER.info("🔥 RECONFIGURE CALLED - Starting configuration process")
         attrs = struct_to_dict(config.attributes)
-        LOGGER.info(f"🔥 RAW CONFIG ATTRIBUTES: {attrs}")
-        LOGGER.info(f"🔥 CONFIG ATTRIBUTES TYPE: {type(attrs)}")
-        
         model_location = str(attrs.get("model_location"))
         pose_classifier_path = attrs.get("pose_classifier_path")
-        
-        LOGGER.info(f"🔥 model_location: {model_location}")
-        LOGGER.info(f"🔥 pose_classifier_path: {pose_classifier_path}")
 
         LOGGER.debug(f"Configuring yolov8 model with {model_location}")
+        LOGGER.info(f"Pose classifier path: {pose_classifier_path}")
+        
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
 
         # Load pose classifier if specified
-        LOGGER.info(f"🔍 DEBUG: pose_classifier_path = {pose_classifier_path}")
-        LOGGER.info(f"🔍 DEBUG: pose_classifier_path type = {type(pose_classifier_path)}")
-        LOGGER.info(f"🔍 DEBUG: All attributes = {attrs}")
-        
         if pose_classifier_path:
             try:
                 import joblib
                 classifier_path = os.path.abspath(pose_classifier_path)
-                LOGGER.info(f"🔍 DEBUG: Original path: {pose_classifier_path}")
-                LOGGER.info(f"🔍 DEBUG: Absolute path: {classifier_path}")
-                LOGGER.info(f"🔍 DEBUG: File exists check: {os.path.exists(classifier_path)}")
-                LOGGER.info(f"🔍 DEBUG: Current working directory: {os.getcwd()}")
+                LOGGER.info(f"Looking for ML pose classifier at: {classifier_path}")
                 
                 if os.path.exists(classifier_path):
-                    LOGGER.info(f"✅ File found! Loading ML pose classifier from: {classifier_path}")
+                    LOGGER.info(f"✅ Loading ML pose classifier from: {classifier_path}")
                     self.pose_classifier = joblib.load(classifier_path)
                     LOGGER.info(f"✅ Successfully loaded ML pose classifier!")
                     LOGGER.info(f"   Model type: {type(self.pose_classifier)}")
@@ -131,11 +119,11 @@ class Yolov8nPose(Vision, EasyResource):
                         parent_dir = os.path.dirname(classifier_path)
                         if os.path.exists(parent_dir):
                             files = os.listdir(parent_dir)
-                            LOGGER.error(f"🔍 Directory contents of {parent_dir}: {files}")
+                            LOGGER.error(f"Directory contents of {parent_dir}: {files}")
                         else:
-                            LOGGER.error(f"🔍 Parent directory does not exist: {parent_dir}")
+                            LOGGER.error(f"Parent directory does not exist: {parent_dir}")
                     except Exception as list_err:
-                        LOGGER.error(f"🔍 Could not list directory: {list_err}")
+                        LOGGER.error(f"Could not list directory: {list_err}")
                     self.pose_classifier = None
             except ImportError:
                 LOGGER.error("❌ joblib not installed - cannot load ML pose classifier")
@@ -143,7 +131,7 @@ class Yolov8nPose(Vision, EasyResource):
             except Exception as e:
                 LOGGER.error(f"❌ Failed to load pose classifier: {e}")
                 import traceback
-                LOGGER.error(f"🔍 Full traceback: {traceback.format_exc()}")
+                LOGGER.error(f"Full traceback: {traceback.format_exc()}")
                 self.pose_classifier = None
         else:
             LOGGER.warning("⚠️  No pose_classifier_path specified - ML classification disabled")
