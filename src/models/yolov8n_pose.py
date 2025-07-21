@@ -141,11 +141,23 @@ class Yolov8nPose(Vision, EasyResource):
                 
                 if os.path.exists(classifier_path):
                     LOGGER.error(f"FILE EXISTS - LOADING ML POSE CLASSIFIER")
-                    self.pose_classifier = joblib.load(classifier_path)
-                    LOGGER.error(f"SUCCESS - ML POSE CLASSIFIER LOADED!")
-                    LOGGER.error(f"   Model type: {type(self.pose_classifier)}")
-                    LOGGER.error(f"   Classes: {getattr(self.pose_classifier, 'classes_', 'Unknown')}")
-                    LOGGER.error(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
+                    try:
+                        LOGGER.error(f"BEFORE JOBLIB.LOAD - ABOUT TO LOAD: {classifier_path}")
+                        self.pose_classifier = joblib.load(classifier_path)
+                        LOGGER.error(f"AFTER JOBLIB.LOAD - CHECKING RESULT")
+                        if self.pose_classifier is not None:
+                            LOGGER.error(f"SUCCESS - ML POSE CLASSIFIER LOADED!")
+                            LOGGER.error(f"   Model type: {type(self.pose_classifier)}")
+                            LOGGER.error(f"   Classes: {getattr(self.pose_classifier, 'classes_', 'Unknown')}")
+                            LOGGER.error(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
+                        else:
+                            LOGGER.error(f"JOBLIB.LOAD RETURNED NONE")
+                    except Exception as joblib_error:
+                        LOGGER.error(f"JOBLIB.LOAD FAILED WITH EXCEPTION: {joblib_error}")
+                        LOGGER.error(f"Exception type: {type(joblib_error)}")
+                        import traceback
+                        LOGGER.error(f"Full joblib traceback: {traceback.format_exc()}")
+                        self.pose_classifier = None
                 else:
                     LOGGER.error(f"FILE NOT FOUND: {classifier_path}")
                     # Try to list directory contents for debugging
