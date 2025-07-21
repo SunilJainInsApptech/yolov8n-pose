@@ -88,38 +88,49 @@ class Yolov8nPose(Vision, EasyResource):
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ):
-        LOGGER.error(f"🔥 RAW CONFIG OBJECT TYPE: {type(config)}")
-        LOGGER.error(f"🔥 RAW CONFIG.ATTRIBUTES TYPE: {type(config.attributes)}")
-        LOGGER.error(f"🔥 RAW CONFIG.ATTRIBUTES: {config.attributes}")
+        LOGGER.error("=== RECONFIGURE METHOD CALLED ===")
+        LOGGER.error(f"RAW CONFIG OBJECT TYPE: {type(config)}")
+        LOGGER.error(f"RAW CONFIG.ATTRIBUTES TYPE: {type(config.attributes)}")
+        LOGGER.error(f"RAW CONFIG.ATTRIBUTES: {config.attributes}")
         
         attrs = struct_to_dict(config.attributes)
         model_location = str(attrs.get("model_location"))
-        pose_classifier_path = str(attrs.get("pose_classifier_path"))
+        pose_classifier_path = attrs.get("pose_classifier_path")
 
-        LOGGER.debug(f"Configuring yolov8 model with {model_location}")
-        LOGGER.error(f"�🔥🔥 FULL CONFIG ATTRIBUTES RECEIVED: {attrs}")
-        LOGGER.error(f"🔥🔥🔥 POSE CLASSIFIER PATH FROM CLOUD: {pose_classifier_path}")
-        LOGGER.error(f"🔥🔥🔥 AVAILABLE KEYS: {list(attrs.keys())}")
+        LOGGER.error(f"FULL CONFIG ATTRIBUTES RECEIVED: {attrs}")
+        LOGGER.error(f"POSE CLASSIFIER PATH RAW: {pose_classifier_path}")
+        LOGGER.error(f"POSE CLASSIFIER PATH TYPE: {type(pose_classifier_path)}")
+        LOGGER.error(f"POSE CLASSIFIER PATH STR: {str(pose_classifier_path)}")
+        LOGGER.error(f"AVAILABLE KEYS: {list(attrs.keys())}")
+        
+        # Convert to string but preserve None detection
+        if pose_classifier_path is not None:
+            pose_classifier_path_str = str(pose_classifier_path)
+            LOGGER.error(f"POSE CLASSIFIER PATH CONVERTED: {pose_classifier_path_str}")
+        else:
+            pose_classifier_path_str = None
+            LOGGER.error("POSE CLASSIFIER PATH IS NONE")
         
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
 
         # Load pose classifier if specified
-        if pose_classifier_path:
+        if pose_classifier_path_str and pose_classifier_path_str != "None":
             try:
+                LOGGER.error(f"ATTEMPTING TO LOAD ML CLASSIFIER FROM: {pose_classifier_path_str}")
                 import joblib
-                classifier_path = os.path.abspath(pose_classifier_path)
-                LOGGER.info(f"Looking for ML pose classifier at: {classifier_path}")
+                classifier_path = os.path.abspath(pose_classifier_path_str)
+                LOGGER.error(f"ABSOLUTE PATH: {classifier_path}")
                 
                 if os.path.exists(classifier_path):
-                    LOGGER.info(f"✅ Loading ML pose classifier from: {classifier_path}")
+                    LOGGER.error(f"FILE EXISTS - LOADING ML POSE CLASSIFIER")
                     self.pose_classifier = joblib.load(classifier_path)
-                    LOGGER.info(f"✅ Successfully loaded ML pose classifier!")
-                    LOGGER.info(f"   Model type: {type(self.pose_classifier)}")
-                    LOGGER.info(f"   Classes: {getattr(self.pose_classifier, 'classes_', 'Unknown')}")
-                    LOGGER.info(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
+                    LOGGER.error(f"SUCCESS - ML POSE CLASSIFIER LOADED!")
+                    LOGGER.error(f"   Model type: {type(self.pose_classifier)}")
+                    LOGGER.error(f"   Classes: {getattr(self.pose_classifier, 'classes_', 'Unknown')}")
+                    LOGGER.error(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
                 else:
-                    LOGGER.error(f"❌ Pose classifier file not found: {classifier_path}")
+                    LOGGER.error(f"FILE NOT FOUND: {classifier_path}")
                     # Try to list directory contents for debugging
                     try:
                         parent_dir = os.path.dirname(classifier_path)
@@ -132,15 +143,15 @@ class Yolov8nPose(Vision, EasyResource):
                         LOGGER.error(f"Could not list directory: {list_err}")
                     self.pose_classifier = None
             except ImportError:
-                LOGGER.error("❌ joblib not installed - cannot load ML pose classifier")
+                LOGGER.error("JOBLIB NOT INSTALLED - cannot load ML pose classifier")
                 self.pose_classifier = None
             except Exception as e:
-                LOGGER.error(f"❌ Failed to load pose classifier: {e}")
+                LOGGER.error(f"FAILED TO LOAD POSE CLASSIFIER: {e}")
                 import traceback
                 LOGGER.error(f"Full traceback: {traceback.format_exc()}")
                 self.pose_classifier = None
         else:
-            LOGGER.warning("⚠️  No pose_classifier_path specified - ML classification disabled")
+            LOGGER.error("NO POSE CLASSIFIER PATH SPECIFIED - ML classification disabled")
             self.pose_classifier = None
 
         if "/" in model_location:
