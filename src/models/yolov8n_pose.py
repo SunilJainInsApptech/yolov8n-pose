@@ -68,21 +68,38 @@ class Yolov8nPose(Vision, EasyResource):
         Returns:
             Self: The resource
         """
-        return super().new(config, dependencies)
+        LOGGER.error("=== NEW METHOD CALLED - CREATING YOLOV8 INSTANCE ===")
+        LOGGER.error(f"Config received in new(): {config}")
+        LOGGER.error(f"Dependencies received in new(): {dependencies}")
+        try:
+            result = super().new(config, dependencies)
+            LOGGER.error("=== NEW METHOD COMPLETED SUCCESSFULLY ===")
+            return result
+        except Exception as e:
+            LOGGER.error(f"=== NEW METHOD FAILED: {e} ===")
+            import traceback
+            LOGGER.error(f"Full traceback: {traceback.format_exc()}")
+            raise
 
     # Validates JSON Configuration
     @classmethod
     def validate_config(cls, config: ComponentConfig):
-        LOGGER.debug("Validating yolov8 service config")
+        LOGGER.error("=== VALIDATE_CONFIG METHOD CALLED ===")
+        LOGGER.error(f"Validating config: {config}")
+        LOGGER.error(f"Config attributes: {config.attributes}")
         try:
             attrs = struct_to_dict(config.attributes)
+            LOGGER.error(f"Parsed attributes: {attrs}")
             model_location = attrs.get("model_location")
             if not model_location:
+                LOGGER.error("ERROR: No model_location found in config")
                 raise Exception("A model_location must be defined")
-            LOGGER.debug(f"Validation successful for model_location: {model_location}")
+            LOGGER.error(f"Validation successful for model_location: {model_location}")
             return []
         except Exception as e:
-            LOGGER.error(f"Validation failed: {e}")
+            LOGGER.error(f"VALIDATION FAILED: {e}")
+            import traceback
+            LOGGER.error(f"Full traceback: {traceback.format_exc()}")
             raise e
 
     def reconfigure(
