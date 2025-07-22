@@ -2,11 +2,11 @@
   "agent": {
     "advanced_settings": {
       "viam_server_env": {
-        "TWILIO_ACCOUNT_SID": "REPLACE_WITH_YOUR_TWILIO_ACCOUNT_SID_FROM_CONSOLE",
-        "TWILIO_AUTH_TOKEN": "REPLACE_WITH_YOUR_TWILIO_AUTH_TOKEN_FROM_CONSOLE",
-        "TWILIO_FROM_PHONE": "+1234567890",
-        "TWILIO_TO_PHONES": "+1987654321,+1555123456",
-        "TWILIO_WEBHOOK_URL": "https://your-server.com/fall-images"
+        "TWILIO_ACCOUNT_SID": "REPLACE_WITH_YOUR_ACTUAL_TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN": "REPLACE_WITH_YOUR_ACTUAL_TWILIO_AUTH_TOKEN",
+        "TWILIO_FROM_PHONE": "REPLACE_WITH_YOUR_TWILIO_PHONE_NUMBER",
+        "TWILIO_TO_PHONES": "REPLACE_WITH_COMMA_SEPARATED_RECIPIENT_NUMBERS",
+        "TWILIO_WEBHOOK_URL": "REPLACE_WITH_YOUR_WEBHOOK_URL_OR_REMOVE_IF_NOT_NEEDED"
       }
     }
   },
@@ -28,7 +28,7 @@
         "model_location": "/home/sunil/yolov8n-pose.pt",
         "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib",
         
-        "_comment_security": "🔒 Twilio credentials are now loaded from environment variables via agent.advanced_settings.viam_server_env",
+        "_comment_security": "🔒 Twilio credentials are securely loaded from environment variables via agent.advanced_settings.viam_server_env",
         "_comment_usage": "Set use_env_for_twilio=true to enable environment variable loading (defaults to true if TWILIO_ACCOUNT_SID env var exists)",
         "use_env_for_twilio": true,
         

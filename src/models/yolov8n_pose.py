@@ -212,19 +212,23 @@ class Yolov8nPose(Vision, EasyResource):
         # Support both environment variables (secure) and config attributes
         alert_config = {}
         
-        # Check if we should use environment variables
-        use_env = attrs.get('use_env_for_twilio', False) or os.environ.get('TWILIO_ACCOUNT_SID')
+        # Check if we should use environment variables (prioritize env vars)
+        # Default to True if use_env_for_twilio is set or if TWILIO_ACCOUNT_SID env var exists
+        use_env = attrs.get('use_env_for_twilio', False) or bool(os.environ.get('TWILIO_ACCOUNT_SID'))
         
         if use_env:
-            LOGGER.error("LOADING TWILIO CREDENTIALS FROM ENVIRONMENT VARIABLES")
-            # Debug: Show what environment variables we can actually see
-            LOGGER.error(f"TWILIO_ACCOUNT_SID = '{os.environ.get('TWILIO_ACCOUNT_SID', 'NOT_SET')}'")
-            LOGGER.error(f"TWILIO_AUTH_TOKEN = '{os.environ.get('TWILIO_AUTH_TOKEN', 'NOT_SET')[:8]}...' (truncated)")
-            LOGGER.error(f"TWILIO_FROM_PHONE = '{os.environ.get('TWILIO_FROM_PHONE', 'NOT_SET')}'")
-            LOGGER.error(f"TWILIO_TO_PHONES = '{os.environ.get('TWILIO_TO_PHONES', 'NOT_SET')}'")
-            LOGGER.error(f"TWILIO_WEBHOOK_URL = '{os.environ.get('TWILIO_WEBHOOK_URL', 'NOT_SET')}'")
+            LOGGER.error("🔒 LOADING TWILIO CREDENTIALS FROM ENVIRONMENT VARIABLES (secure method)")
+            # Debug: Show what environment variables we can actually see (without exposing sensitive data)
+            env_status = {
+                'TWILIO_ACCOUNT_SID': 'SET' if os.environ.get('TWILIO_ACCOUNT_SID') else 'NOT_SET',
+                'TWILIO_AUTH_TOKEN': 'SET' if os.environ.get('TWILIO_AUTH_TOKEN') else 'NOT_SET',
+                'TWILIO_FROM_PHONE': 'SET' if os.environ.get('TWILIO_FROM_PHONE') else 'NOT_SET',
+                'TWILIO_TO_PHONES': 'SET' if os.environ.get('TWILIO_TO_PHONES') else 'NOT_SET',
+                'TWILIO_WEBHOOK_URL': 'SET' if os.environ.get('TWILIO_WEBHOOK_URL') else 'NOT_SET'
+            }
+            LOGGER.error(f"Environment variable status: {env_status}")
             
-            # Load from environment (secure method)
+            # Load from environment (secure method via viam agent configuration)
             alert_config = {
                 'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID'),
                 'twilio_auth_token': os.environ.get('TWILIO_AUTH_TOKEN'),
@@ -236,8 +240,8 @@ class Yolov8nPose(Vision, EasyResource):
                 'alert_cooldown_seconds': attrs.get('alert_cooldown_seconds', 300)
             }
         else:
-            LOGGER.error("LOADING TWILIO CREDENTIALS FROM ROBOT CONFIGURATION")
-            # Load from config attributes (less secure)
+            LOGGER.error("⚠️ LOADING TWILIO CREDENTIALS FROM ROBOT CONFIGURATION (less secure)")
+            # Load from config attributes (less secure - for backwards compatibility)
             alert_config = {
                 'twilio_account_sid': attrs.get('twilio_account_sid'),
                 'twilio_auth_token': attrs.get('twilio_auth_token'), 

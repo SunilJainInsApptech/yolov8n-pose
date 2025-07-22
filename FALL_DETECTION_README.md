@@ -28,15 +28,31 @@ pip install twilio
 3. Purchase a **Twilio phone number** for sending SMS
 4. Note the phone numbers you want to receive alerts
 
-### 3. Update Robot Configuration (Secure Method)
+### 3. Configure Secure Credentials
 
-**🔒 RECOMMENDED: Use Environment Variables for Security**
+**🔒 RECOMMENDED: Use Viam Agent Environment Variables (Most Secure)**
 
-Set up environment variables on your system:
+The safest way to configure Twilio credentials is through Viam's native environment variable system. This method:
+- ✅ Keeps credentials secure and out of config files
+- ✅ Works seamlessly with viam-agent
+- ✅ Automatically restarts services when changed
+- ✅ Is the officially recommended Viam approach
+
+See **[VIAM_ENVIRONMENT_VARIABLES.md](VIAM_ENVIRONMENT_VARIABLES.md)** for complete setup instructions.
+
+**Quick Setup:**
+1. Edit your robot configuration JSON file
+2. Add `agent.advanced_settings.viam_server_env` section with Twilio credentials  
+3. Set `use_env_for_twilio: true` in service attributes
+4. Save - viam-agent will restart automatically
+
+**Alternative: System Environment Variables (Legacy)**
+
+If you prefer system-level environment variables:
 
 ```bash
-# Add to ~/.bashrc or ~/.profile
-export TWILIO_ACCOUNT_SID="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# Add to ~/.bashrc or ~/.profile  
+export TWILIO_ACCOUNT_SID="YOUR_TWILIO_ACCOUNT_SID_HERE"
 export TWILIO_AUTH_TOKEN="your_auth_token_here"
 export TWILIO_FROM_PHONE="+15551234567" 
 export TWILIO_TO_PHONES="+15557654321,+15559876543"
@@ -44,8 +60,6 @@ export TWILIO_TO_PHONES="+15557654321,+15559876543"
 # Reload environment
 source ~/.bashrc
 ```
-
-Then use this secure robot configuration:
 
 ```json
 {
@@ -76,7 +90,7 @@ If you can't use environment variables, you can put credentials directly in conf
     "model_location": "/home/sunil/yolov8n-pose.pt",
     "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib",
     
-    "twilio_account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "twilio_account_sid": "YOUR_TWILIO_ACCOUNT_SID_HERE",
     "twilio_auth_token": "your_auth_token_here",
     "twilio_from_phone": "+15551234567",
     "twilio_to_phones": ["+15557654321", "+15559876543"],
@@ -97,7 +111,7 @@ python test_fall_alerts.py
 
 | Setting | Description | Default | Example |
 |---------|-------------|---------|---------|
-| `twilio_account_sid` | Your Twilio Account SID | Required | `"ACxxxxxxxxx..."` |
+| `twilio_account_sid` | Your Twilio Account SID | Required | `"YOUR_ACCOUNT_SID_HERE"` |
 | `twilio_auth_token` | Your Twilio Auth Token | Required | `"your_token..."` |
 | `twilio_from_phone` | Twilio phone number for sending | Required | `"+15551234567"` |
 | `twilio_to_phones` | List of recipient phone numbers | Required | `["+15557654321"]` |
@@ -195,7 +209,7 @@ Beyond SMS, you can add:
 ### 🔐 Environment Variable Setup
 ```bash
 # Option 1: User profile (recommended for development)
-echo 'export TWILIO_ACCOUNT_SID="ACxxxxx..."' >> ~/.bashrc
+echo 'export TWILIO_ACCOUNT_SID="YOUR_ACCOUNT_SID_HERE"' >> ~/.bashrc
 echo 'export TWILIO_AUTH_TOKEN="your_token"' >> ~/.bashrc
 echo 'export TWILIO_FROM_PHONE="+15551234567"' >> ~/.bashrc  
 echo 'export TWILIO_TO_PHONES="+15557654321,+15559876543"' >> ~/.bashrc
@@ -204,7 +218,7 @@ source ~/.bashrc
 # Option 2: System-wide secure file (recommended for production)
 sudo mkdir -p /etc/viam
 sudo tee /etc/viam/secrets.env << EOF
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_ACCOUNT_SID=YOUR_TWILIO_ACCOUNT_SID_HERE
 TWILIO_AUTH_TOKEN=your_auth_token_here
 TWILIO_FROM_PHONE=+15551234567
 TWILIO_TO_PHONES=+15557654321,+15559876543
