@@ -217,6 +217,13 @@ class Yolov8nPose(Vision, EasyResource):
         
         if use_env:
             LOGGER.error("LOADING TWILIO CREDENTIALS FROM ENVIRONMENT VARIABLES")
+            # Debug: Show what environment variables we can actually see
+            LOGGER.error(f"TWILIO_ACCOUNT_SID = '{os.environ.get('TWILIO_ACCOUNT_SID', 'NOT_SET')}'")
+            LOGGER.error(f"TWILIO_AUTH_TOKEN = '{os.environ.get('TWILIO_AUTH_TOKEN', 'NOT_SET')[:8]}...' (truncated)")
+            LOGGER.error(f"TWILIO_FROM_PHONE = '{os.environ.get('TWILIO_FROM_PHONE', 'NOT_SET')}'")
+            LOGGER.error(f"TWILIO_TO_PHONES = '{os.environ.get('TWILIO_TO_PHONES', 'NOT_SET')}'")
+            LOGGER.error(f"TWILIO_WEBHOOK_URL = '{os.environ.get('TWILIO_WEBHOOK_URL', 'NOT_SET')}'")
+            
             # Load from environment (secure method)
             alert_config = {
                 'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID'),
