@@ -28,6 +28,16 @@ import torch
 import joblib
 import numpy as np
 
+# Import fall detection alerts
+try:
+    from ..fall_detection_alerts import FallDetectionAlerts
+except ImportError:
+    # When running as local module
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from fall_detection_alerts import FallDetectionAlerts
+
 LOGGER = getLogger(__name__)
 
 MODEL_DIR = os.environ.get(
@@ -51,6 +61,7 @@ class Yolov8nPose(Vision, EasyResource):
 
     model: YOLO
     pose_classifier: Optional[Any] = None
+    fall_alerts: Optional[FallDetectionAlerts] = None
     device: str
 
     # Constructor
@@ -143,6 +154,11 @@ class Yolov8nPose(Vision, EasyResource):
                     LOGGER.error(f"FILE EXISTS - LOADING ML POSE CLASSIFIER")
                     try:
                         LOGGER.error(f"BEFORE JOBLIB.LOAD - ABOUT TO LOAD: {classifier_path}")
+                        
+                        # Check numpy version for compatibility warning
+                        import numpy as np
+                        LOGGER.error(f"Current numpy version: {np.__version__}")
+                        
                         self.pose_classifier = joblib.load(classifier_path)
                         LOGGER.error(f"AFTER JOBLIB.LOAD - CHECKING RESULT")
                         if self.pose_classifier is not None:
@@ -152,6 +168,15 @@ class Yolov8nPose(Vision, EasyResource):
                             LOGGER.error(f"   Feature count: {getattr(self.pose_classifier, 'n_features_in_', 'Unknown')}")
                         else:
                             LOGGER.error(f"JOBLIB.LOAD RETURNED NONE")
+                    except ModuleNotFoundError as numpy_error:
+                        if "numpy._core" in str(numpy_error):
+                            LOGGER.error(f"NUMPY VERSION COMPATIBILITY ERROR: {numpy_error}")
+                            LOGGER.error("The ML classifier was saved with a newer numpy version (2.x) but current environment has numpy 1.x")
+                            LOGGER.error("SOLUTION: Update numpy with: pip install --upgrade numpy>=2.0")
+                            LOGGER.error("Or retrain the classifier with current numpy version")
+                        else:
+                            LOGGER.error(f"MODULE NOT FOUND ERROR: {numpy_error}")
+                        self.pose_classifier = None
                     except Exception as joblib_error:
                         LOGGER.error(f"JOBLIB.LOAD FAILED WITH EXCEPTION: {joblib_error}")
                         LOGGER.error(f"Exception type: {type(joblib_error)}")
@@ -182,6 +207,59 @@ class Yolov8nPose(Vision, EasyResource):
         else:
             LOGGER.error("NO POSE CLASSIFIER PATH SPECIFIED - ML classification disabled")
             self.pose_classifier = None
+
+        # Initialize fall detection alerts if configured
+        # Support both environment variables (secure) and config attributes
+        alert_config = {}
+        
+        # Check if we should use environment variables
+        use_env = attrs.get('use_env_for_twilio', False) or os.environ.get('TWILIO_ACCOUNT_SID')
+        
+        if use_env:
+            LOGGER.error("LOADING TWILIO CREDENTIALS FROM ENVIRONMENT VARIABLES")
+            # Load from environment (secure method)
+            alert_config = {
+                'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID'),
+                'twilio_auth_token': os.environ.get('TWILIO_AUTH_TOKEN'),
+                'twilio_from_phone': os.environ.get('TWILIO_FROM_PHONE'),
+                'twilio_to_phones': os.environ.get('TWILIO_TO_PHONES', '').split(',') if os.environ.get('TWILIO_TO_PHONES') else [],
+                'webhook_url': os.environ.get('TWILIO_WEBHOOK_URL'),
+                # Non-sensitive settings can still come from config
+                'fall_confidence_threshold': attrs.get('fall_confidence_threshold', 0.7),
+                'alert_cooldown_seconds': attrs.get('alert_cooldown_seconds', 300)
+            }
+        else:
+            LOGGER.error("LOADING TWILIO CREDENTIALS FROM ROBOT CONFIGURATION")
+            # Load from config attributes (less secure)
+            alert_config = {
+                'twilio_account_sid': attrs.get('twilio_account_sid'),
+                'twilio_auth_token': attrs.get('twilio_auth_token'), 
+                'twilio_from_phone': attrs.get('twilio_from_phone'),
+                'twilio_to_phones': attrs.get('twilio_to_phones', []),
+                'fall_confidence_threshold': attrs.get('fall_confidence_threshold', 0.7),
+                'alert_cooldown_seconds': attrs.get('alert_cooldown_seconds', 300),
+                'webhook_url': attrs.get('webhook_url')
+            }
+        
+        # Check if all required Twilio settings are provided
+        if all([alert_config['twilio_account_sid'], 
+                alert_config['twilio_auth_token'], 
+                alert_config['twilio_from_phone'],
+                alert_config['twilio_to_phones']]):
+            try:
+                LOGGER.error("INITIALIZING FALL DETECTION ALERTS")
+                self.fall_alerts = FallDetectionAlerts(alert_config)
+                LOGGER.error("✅ FALL DETECTION ALERTS INITIALIZED SUCCESSFULLY")
+            except Exception as e:
+                LOGGER.error(f"❌ FAILED TO INITIALIZE FALL DETECTION ALERTS: {e}")
+                self.fall_alerts = None
+        else:
+            LOGGER.error("FALL DETECTION ALERTS DISABLED - Missing Twilio configuration")
+            LOGGER.error(f"Account SID present: {bool(alert_config['twilio_account_sid'])}")
+            LOGGER.error(f"Auth Token present: {bool(alert_config['twilio_auth_token'])}")
+            LOGGER.error(f"From Phone present: {bool(alert_config['twilio_from_phone'])}")
+            LOGGER.error(f"To Phones present: {bool(alert_config['twilio_to_phones'])}")
+            self.fall_alerts = None
 
         if "/" in model_location:
             if self.is_path(model_location):
@@ -304,7 +382,10 @@ class Yolov8nPose(Vision, EasyResource):
         extra: Optional[Mapping[str, Any]] = None,
         timeout: Optional[float] = None,
     ) -> List[Classification]:
-        return await self.get_classifications(await self.get_cam_image(camera_name))
+        # Pass camera name in extra for fall alert context
+        extra_dict = dict(extra) if extra else {}
+        extra_dict["camera_name"] = camera_name
+        return await self.get_classifications(await self.get_cam_image(camera_name), count, extra=extra_dict)
 
     async def get_classifications(
         self,
@@ -320,7 +401,7 @@ class Yolov8nPose(Vision, EasyResource):
         keypoints = await self.extract_keypoints(image)
         pose_classifications = await self.classify_poses(keypoints)
         
-        # Convert pose classifications to Viam Classification format
+        # Convert pose classifications to Viam Classification format AND check for fall alerts
         for pose_class in pose_classifications:
             if pose_class["pose_class"] != "unknown":
                 classification = Classification(
@@ -328,6 +409,31 @@ class Yolov8nPose(Vision, EasyResource):
                     confidence=pose_class["confidence"]
                 )
                 classifications.append(classification)
+                
+                # 🚨 TRIGGER FALL DETECTION ALERT IF NEEDED 🚨
+                if pose_class.get("_trigger_fall_alert") and self.fall_alerts:
+                    camera_name = extra.get("camera_name", "unknown_camera") if extra else "unknown_camera"
+                    person_id = pose_class["person_id"]
+                    confidence = pose_class["confidence"]
+                    alert_metadata = pose_class.get("_alert_metadata", {})
+                    
+                    LOGGER.error(f"🚨 TRIGGERING FALL ALERT for person {person_id} on camera {camera_name}")
+                    
+                    # Send fall alert asynchronously (don't block the vision service)
+                    try:
+                        import asyncio
+                        asyncio.create_task(
+                            self.fall_alerts.send_fall_alert(
+                                camera_name=camera_name,
+                                person_id=person_id,
+                                confidence=confidence,
+                                image=image,
+                                metadata=alert_metadata
+                            )
+                        )
+                        LOGGER.error("✅ Fall alert task created successfully")
+                    except Exception as alert_error:
+                        LOGGER.error(f"❌ Failed to create fall alert task: {alert_error}")
         
         return classifications
 
@@ -537,6 +643,19 @@ class Yolov8nPose(Vision, EasyResource):
                         LOGGER.info(f"ML Classification for person {person_data['person_id']}: {prediction} ({confidence:.3f})")
                         LOGGER.info(f"Probabilities: {prob_dict}")
                         LOGGER.info(f"Features used: {feature_debug}")
+                        
+                        # 🚨 FALL DETECTION TRIGGER 🚨
+                        if prediction == "fallen" and self.fall_alerts:
+                            # Trigger fall detection alert
+                            LOGGER.error(f"🚨 FALL DETECTED for person {person_data['person_id']} with confidence {confidence:.3f}")
+                            
+                            # We need the original image for the alert - store it for later use
+                            classification["_trigger_fall_alert"] = True
+                            classification["_alert_metadata"] = {
+                                "probabilities": prob_dict,
+                                "features": feature_debug,
+                                "confidence": confidence
+                            }
                         
                         classifications.append(classification)
                         continue
