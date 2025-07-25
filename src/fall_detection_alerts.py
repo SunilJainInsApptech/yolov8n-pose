@@ -235,14 +235,47 @@ class FallDetectionAlerts:
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):
         """Save fall detection image to Viam-monitored directory for automatic sync"""
-        # Save to Viam-monitored directory (syncs automatically every 1 minute)
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"fall_{camera_name}_{person_id}_{timestamp_str}.jpg"
-        filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
-        
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, 'wb') as f:
-            f.write(image.data)
-        
-        LOGGER.info(f"📸 Fall image saved to Viam-monitored directory: {filepath}")
-        LOGGER.info("🔄 Image will sync to Viam app within 1 minute")
+        try:
+            # Save to Viam-monitored directory (syncs automatically every 1 minute)
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"fall_{camera_name}_{person_id}_{timestamp_str}.jpg"
+            filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
+            
+            LOGGER.info(f"🔄 Attempting to save fall image: {filepath}")
+            LOGGER.info(f"📊 Image data size: {len(image.data)} bytes")
+            LOGGER.info(f"📁 Target directory: {os.path.dirname(filepath)}")
+            
+            # Create directory and log the result
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            if os.path.exists(os.path.dirname(filepath)):
+                LOGGER.info(f"✅ Directory exists: {os.path.dirname(filepath)}")
+            else:
+                LOGGER.error(f"❌ Failed to create directory: {os.path.dirname(filepath)}")
+                return
+            
+            # Save the image
+            with open(filepath, 'wb') as f:
+                f.write(image.data)
+            
+            # Verify the file was created
+            if os.path.exists(filepath):
+                file_size = os.path.getsize(filepath)
+                LOGGER.info(f"✅ Fall image saved successfully: {filepath}")
+                LOGGER.info(f"📏 File size: {file_size} bytes")
+                LOGGER.info("🔄 Image will sync to Viam app within 1 minute")
+                
+                # List directory contents for debugging
+                try:
+                    files_in_dir = os.listdir(os.path.dirname(filepath))
+                    LOGGER.info(f"📂 Files in capture directory: {len(files_in_dir)} files")
+                    recent_files = [f for f in files_in_dir if f.startswith('fall_')][-5:]  # Last 5 fall images
+                    LOGGER.info(f"� Recent fall images: {recent_files}")
+                except Exception as list_error:
+                    LOGGER.error(f"❌ Could not list directory contents: {list_error}")
+            else:
+                LOGGER.error(f"❌ File was not created: {filepath}")
+                
+        except Exception as e:
+            LOGGER.error(f"❌ Failed to save fall image: {e}")
+            import traceback
+            LOGGER.error(f"Full traceback: {traceback.format_exc()}")
