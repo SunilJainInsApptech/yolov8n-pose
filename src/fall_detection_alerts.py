@@ -159,7 +159,10 @@ class FallDetectionAlerts:
             timestamp = datetime.now()
             self.last_alert_time[person_id] = timestamp
             
-            # Save image locally
+            # Save image to Viam-monitored directory for automatic sync
+            await self.save_fall_image(camera_name, person_id, confidence, image)
+            
+            # Save image locally for SMS reference
             image_path = await self.save_image_locally(image, person_id)
             
             # Format alert message
@@ -229,3 +232,17 @@ class FallDetectionAlerts:
         except Exception as e:
             LOGGER.error(f"❌ Error sending test alert: {e}")
             return False
+    
+    async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):
+        """Save fall detection image to Viam-monitored directory for automatic sync"""
+        # Save to Viam-monitored directory (syncs automatically every 1 minute)
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"fall_{camera_name}_{person_id}_{timestamp_str}.jpg"
+        filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
+        
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'wb') as f:
+            f.write(image.data)
+        
+        LOGGER.info(f"📸 Fall image saved to Viam-monitored directory: {filepath}")
+        LOGGER.info("🔄 Image will sync to Viam app within 1 minute")
