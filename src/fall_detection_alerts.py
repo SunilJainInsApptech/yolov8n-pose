@@ -132,7 +132,7 @@ class FallDetectionAlerts:
             if 'probabilities' in metadata:
                 probs = metadata['probabilities']
                 message += f"Pose Probs: "
-                message += f"Fall:{probs.get('fallen', 0):.1%}\n "
+                message += f"Fall:{probs.get('fallen', 0):.1%}\n"
         #        message += f"Stand:{probs.get('standing', 0):.1%} "
          #       message += f"Sit:{probs.get('sitting', 0):.1%}\n"
         
