@@ -125,20 +125,19 @@ class FallDetectionAlerts:
         message = f"🚨 FALL DETECTED 🚨\n"
         message += f"Camera: {camera_name}\n"
         # message += f"Person: {person_id}\n"
-        message += f"Confidence: {confidence:.1%}\n"
+        message += f"Fall Confidence: {confidence:.1%}\n"
         message += f"Time: {timestamp_str}\n"
         
         if metadata:
             if 'probabilities' in metadata:
                 probs = metadata['probabilities']
-                message += f"Pose Probs: "
-                message += f"Fall:{probs.get('fallen', 0):.1%}\n"
+                # message += f"Pose Probs: "
+                # message += f"Fall:{probs.get('fallen', 0):.1%}\n"
         #        message += f"Stand:{probs.get('standing', 0):.1%} "
-         #       message += f"Sit:{probs.get('sitting', 0):.1%}\n"
+        #       message += f"Sit:{probs.get('sitting', 0):.1%}\n"
         
         if image_path:
             message += f"Image: {os.path.basename(image_path)}\n"
-        
         message += "\nPlease check the location immediately."
         
         return message
