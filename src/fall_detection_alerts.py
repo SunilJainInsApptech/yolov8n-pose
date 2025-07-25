@@ -206,7 +206,7 @@ class FallDetectionAlerts:
             message = f"🧪 TEST ALERT 🧪\n"
             message += f"Fall detection system is active\n"
             message += f"Camera: {camera_name}\n"
-            message += f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            message += f"Time: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}\n"
             message += f"System is monitoring for falls."
             
             success_count = 0
