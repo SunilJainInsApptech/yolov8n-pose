@@ -35,7 +35,8 @@
         "_comment_alert_settings": "Fall Detection Alert Settings - these are non-sensitive so can remain in config",
         "fall_confidence_threshold": 0.7,
         "alert_cooldown_seconds": 300
-      }
+      },
+      "depends_on": ["camera"]
     }
   ],
   "components": [

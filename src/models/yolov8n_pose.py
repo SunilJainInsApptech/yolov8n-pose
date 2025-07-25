@@ -142,6 +142,21 @@ class Yolov8nPose(Vision, EasyResource):
         self.DEPS = dependencies
         self.task = str(attrs.get("task")) or None
 
+        # Debug: Log available camera dependencies
+        if dependencies:
+            LOGGER.error(f"TOTAL DEPENDENCIES RECEIVED: {len(dependencies)}")
+            for dep_name, dep_resource in dependencies.items():
+                LOGGER.error(f"  - {dep_name} ({type(dep_resource)})")
+            
+            camera_names = self.get_available_camera_names()
+            LOGGER.error(f"AVAILABLE CAMERA DEPENDENCIES: {camera_names}")
+            if camera_names:
+                LOGGER.error(f"PRIMARY CAMERA: {camera_names[0]}")
+            else:
+                LOGGER.error("⚠️ NO CAMERA DEPENDENCIES FOUND - check 'depends_on' in config")
+        else:
+            LOGGER.error("⚠️ NO DEPENDENCIES PROVIDED TO VISION SERVICE")
+
         # Load pose classifier if specified
         if pose_classifier_path_str and pose_classifier_path_str != "None":
             try:
@@ -302,6 +317,48 @@ class Yolov8nPose(Vision, EasyResource):
 
         return
 
+    def get_available_camera_names(self) -> List[str]:
+        """Get list of available camera names from dependencies."""
+        camera_names = []
+        if hasattr(self, 'DEPS') and self.DEPS:
+            try:
+                for resource_name in self.DEPS.keys():
+                    # Check if this is a camera resource
+                    if hasattr(resource_name, 'resource_type') and hasattr(resource_name.resource_type, 'resource_type'):
+                        if resource_name.resource_type.resource_type == "camera":
+                            camera_names.append(resource_name.name)
+                    # Fallback: check resource name string
+                    elif "camera" in str(resource_name).lower():
+                        # Extract name from resource string
+                        name_part = str(resource_name).split('/')[-1] if '/' in str(resource_name) else str(resource_name)
+                        camera_names.append(name_part)
+                        
+                LOGGER.info(f"Found camera dependencies: {camera_names}")
+            except Exception as e:
+                LOGGER.error(f"Error getting camera names from dependencies: {e}")
+                # Fallback: try to extract from DEPS keys as strings
+                try:
+                    for key in self.DEPS.keys():
+                        key_str = str(key)
+                        if "camera" in key_str.lower():
+                            # Try to extract just the name part
+                            if '/' in key_str:
+                                name = key_str.split('/')[-1]
+                            else:
+                                name = key_str
+                            camera_names.append(name)
+                    LOGGER.info(f"Fallback camera names: {camera_names}")
+                except Exception as fallback_error:
+                    LOGGER.error(f"Fallback camera name extraction failed: {fallback_error}")
+        return camera_names
+
+    def get_primary_camera_name(self) -> str:
+        """Get the primary camera name from dependencies."""
+        camera_names = self.get_available_camera_names()
+        if camera_names:
+            return camera_names[0]  # Return first available camera
+        return "unknown_camera"
+
     async def get_cam_image(self, camera_name: str) -> ViamImage:
         actual_cam = self.DEPS[Camera.get_resource_name(camera_name)]
         cam = cast(Camera, actual_cam)
@@ -423,7 +480,17 @@ class Yolov8nPose(Vision, EasyResource):
                 
                 # 🚨 TRIGGER FALL DETECTION ALERT IF NEEDED 🚨
                 if pose_class.get("_trigger_fall_alert") and self.fall_alerts:
-                    camera_name = extra.get("camera_name", "unknown_camera") if extra else "unknown_camera"
+                    # Get camera name with fallback logic
+                    camera_name = "unknown_camera"
+                    if extra and "camera_name" in extra:
+                        camera_name = extra["camera_name"]
+                    else:
+                        # Fallback: try to get primary camera name from dependencies
+                        primary_camera = self.get_primary_camera_name()
+                        if primary_camera != "unknown_camera":
+                            camera_name = primary_camera
+                            LOGGER.info(f"Using primary camera name from dependencies: {camera_name}")
+                    
                     person_id = pose_class["person_id"]
                     confidence = pose_class["confidence"]
                     alert_metadata = pose_class.get("_alert_metadata", {})
@@ -466,27 +533,35 @@ class Yolov8nPose(Vision, EasyResource):
         if cmd_name == "get_keypoints":
             # Get keypoints from camera
             camera_name = command.get("camera_name", "")
-            if camera_name:
+            if not camera_name:
+                camera_name = self.get_primary_camera_name()
+            if camera_name and camera_name != "unknown_camera":
                 image = await self.get_cam_image(camera_name)
                 keypoints = await self.extract_keypoints(image)
-                return {"keypoints": keypoints}
+                return {"keypoints": keypoints, "camera_name": camera_name}
             else:
-                return {"error": "camera_name required"}
+                available_cameras = self.get_available_camera_names()
+                return {"error": "camera_name required or no cameras available", "available_cameras": available_cameras}
                 
         elif cmd_name == "get_pose_analysis":
             # Get pose analysis (angles, distances, etc.)
             camera_name = command.get("camera_name", "")
-            if camera_name:
+            if not camera_name:
+                camera_name = self.get_primary_camera_name()
+            if camera_name and camera_name != "unknown_camera":
                 image = await self.get_cam_image(camera_name)
                 analysis = await self.analyze_pose(image)
-                return {"pose_analysis": analysis}
+                return {"pose_analysis": analysis, "camera_name": camera_name}
             else:
-                return {"error": "camera_name required"}
+                available_cameras = self.get_available_camera_names()
+                return {"error": "camera_name required or no cameras available", "available_cameras": available_cameras}
                 
         elif cmd_name == "get_pose_classifications":
             # Get detections + keypoints + pose classifications in one call
             camera_name = command.get("camera_name", "")
-            if camera_name:
+            if not camera_name:
+                camera_name = self.get_primary_camera_name()
+            if camera_name and camera_name != "unknown_camera":
                 image = await self.get_cam_image(camera_name)
                 
                 # Get both detections and keypoints
@@ -508,12 +583,19 @@ class Yolov8nPose(Vision, EasyResource):
                         } for det in detections
                     ],
                     "keypoints": keypoints,
-                    "pose_classifications": pose_classifications
+                    "pose_classifications": pose_classifications,
+                    "camera_name": camera_name
                 }
             else:
-                return {"error": "camera_name required"}
+                available_cameras = self.get_available_camera_names()
+                return {"error": "camera_name required or no cameras available", "available_cameras": available_cameras}
         
-        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications"]}
+        elif cmd_name == "list_cameras":
+            # List available cameras
+            available_cameras = self.get_available_camera_names()
+            return {"available_cameras": available_cameras, "primary_camera": self.get_primary_camera_name()}
+        
+        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras"]}
 
     async def extract_keypoints(self, image: ViamImage) -> List[dict]:
         """Extract only keypoints from detected persons."""
