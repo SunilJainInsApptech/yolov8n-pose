@@ -356,7 +356,15 @@ class Yolov8nPose(Vision, EasyResource):
         """Get the primary camera name from dependencies."""
         camera_names = self.get_available_camera_names()
         if camera_names:
+            # Log all available cameras for debugging
+            LOGGER.error(f"Available cameras in dependencies: {camera_names}")
             return camera_names[0]  # Return first available camera
+        return "unknown_camera"
+
+    def get_camera_name_from_image_request(self, image: ViamImage) -> str:
+        """Try to determine camera name from image metadata or context."""
+        # This is a placeholder - in practice, we'd need to track which camera
+        # the image came from through the call chain
         return "unknown_camera"
 
     async def get_cam_image(self, camera_name: str) -> ViamImage:
@@ -480,16 +488,30 @@ class Yolov8nPose(Vision, EasyResource):
                 
                 # 🚨 TRIGGER FALL DETECTION ALERT IF NEEDED 🚨
                 if pose_class.get("_trigger_fall_alert") and self.fall_alerts:
-                    # Get camera name with fallback logic
+                    # Get camera name with improved fallback logic
                     camera_name = "unknown_camera"
+                    
+                    # Priority 1: Use camera_name from extra (most reliable)
                     if extra and "camera_name" in extra:
                         camera_name = extra["camera_name"]
+                        LOGGER.error(f"✅ Using camera name from extra: {camera_name}")
                     else:
-                        # Fallback: try to get primary camera name from dependencies
-                        primary_camera = self.get_primary_camera_name()
-                        if primary_camera != "unknown_camera":
-                            camera_name = primary_camera
-                            LOGGER.info(f"Using primary camera name from dependencies: {camera_name}")
+                        # Priority 2: Try to get from dependencies
+                        available_cameras = self.get_available_camera_names()
+                        if available_cameras:
+                            if len(available_cameras) == 1:
+                                # Only one camera - safe to use it
+                                camera_name = available_cameras[0]
+                                LOGGER.error(f"✅ Using single camera from dependencies: {camera_name}")
+                            else:
+                                # Multiple cameras - this is the problem case
+                                LOGGER.error(f"⚠️ Multiple cameras in dependencies: {available_cameras}")
+                                LOGGER.error(f"⚠️ Cannot determine which camera detected the fall!")
+                                LOGGER.error(f"⚠️ Using first camera as fallback: {available_cameras[0]}")
+                                LOGGER.error(f"🔧 SOLUTION: Use separate vision services for each camera")
+                                camera_name = available_cameras[0]
+                        else:
+                            LOGGER.error(f"❌ No cameras found in dependencies")
                     
                     person_id = pose_class["person_id"]
                     confidence = pose_class["confidence"]

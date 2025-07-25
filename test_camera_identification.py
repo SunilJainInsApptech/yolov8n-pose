@@ -24,39 +24,55 @@ def test_camera_config():
         with open(config_path, 'r') as f:
             config = json.load(f)
         
-        # Check if vision service has depends_on
-        vision_service = None
-        for service in config.get('services', []):
-            if service.get('model') == 'rig-guardian:yolov8n-pose:yolov8n-pose':
-                vision_service = service
-                break
+        # Check vision services and their dependencies
+        vision_services = [service for service in config.get('services', []) 
+                          if service.get('model') == 'rig-guardian:yolov8n-pose:yolov8n-pose']
         
-        if not vision_service:
-            print("❌ Vision service not found in configuration")
+        if not vision_services:
+            print("❌ No vision services found in configuration")
             return False
         
-        if 'depends_on' not in vision_service:
-            print("❌ Vision service missing 'depends_on' section")
-            print("   Add: \"depends_on\": [\"camera\"] to the vision service configuration")
-            return False
+        print(f"✅ Found {len(vision_services)} vision service(s)")
         
-        depends_on = vision_service['depends_on']
-        print(f"✅ Vision service depends_on: {depends_on}")
-        
-        # Check if cameras exist in components
+        # Check camera components
         camera_components = [comp for comp in config.get('components', []) if comp.get('type') == 'camera']
         camera_names = [comp.get('name') for comp in camera_components]
         
         print(f"✅ Camera components found: {camera_names}")
         
-        # Check if depends_on matches actual cameras
-        for dep in depends_on:
-            if dep not in camera_names:
-                print(f"⚠️  Dependency '{dep}' not found in camera components")
-            else:
-                print(f"✅ Dependency '{dep}' matches camera component")
+        # Check each vision service
+        config_issues = []
+        for i, service in enumerate(vision_services):
+            service_name = service.get('name', f'service_{i}')
+            depends_on = service.get('depends_on', [])
+            
+            print(f"\n  🔍 Vision Service: {service_name}")
+            print(f"    Depends on: {depends_on}")
+            
+            if not depends_on:
+                config_issues.append(f"Service '{service_name}' missing 'depends_on' section")
+                continue
+            
+            if len(depends_on) > 1:
+                config_issues.append(f"Service '{service_name}' depends on multiple cameras: {depends_on}")
+                print(f"    ⚠️  WARNING: Multiple camera dependencies can cause wrong camera names in alerts")
+                print(f"    🔧 RECOMMENDATION: Use separate vision services for each camera")
+            
+            # Check if dependencies match actual cameras
+            for dep in depends_on:
+                if dep not in camera_names:
+                    config_issues.append(f"Service '{service_name}' dependency '{dep}' not found in camera components")
+                else:
+                    print(f"    ✅ Dependency '{dep}' matches camera component")
         
-        return True
+        if config_issues:
+            print(f"\n❌ Configuration Issues Found:")
+            for issue in config_issues:
+                print(f"  - {issue}")
+            return False
+        else:
+            print(f"\n✅ All configuration checks passed!")
+            return True
         
     except Exception as e:
         print(f"❌ Error reading configuration: {e}")
@@ -66,63 +82,106 @@ def test_camera_name_logic():
     """Test the camera name extraction logic."""
     print("\n🔍 Testing Camera Name Logic...")
     
-    # Simulate different scenarios
+    # Test cases based on current configuration
     test_cases = [
         {
-            "name": "With camera_name in extra",
-            "extra": {"camera_name": "front_camera"},
-            "expected": "front_camera"
+            "name": "Single vision service with single camera dependency",
+            "dependencies": ["Lobby_Center_North"],
+            "extra": {"camera_name": "Lobby_Center_North"},
+            "expected": "Lobby_Center_North",
+            "scenario": "Normal case - should work correctly"
         },
         {
-            "name": "Without camera_name in extra (should use primary)",
+            "name": "Single vision service with multiple camera dependencies (PROBLEM CASE)",
+            "dependencies": ["Lobby_Center_North", "CPW_Awning_N_Facing"],
             "extra": {},
-            "expected": "primary_camera_fallback"
+            "expected": "Lobby_Center_North",  # Will pick first camera
+            "scenario": "This causes wrong camera names in alerts!"
         },
         {
-            "name": "No extra parameter (should use primary)", 
-            "extra": None,
-            "expected": "primary_camera_fallback"
+            "name": "Separate vision services (RECOMMENDED SOLUTION)",
+            "dependencies": ["Lobby_Center_North"],  # Each service has only one camera
+            "extra": {"camera_name": "Lobby_Center_North"},
+            "expected": "Lobby_Center_North",
+            "scenario": "Correct setup - one vision service per camera"
         }
     ]
     
     for test_case in test_cases:
         print(f"\n  Test: {test_case['name']}")
+        print(f"    Scenario: {test_case['scenario']}")
+        
+        dependencies = test_case['dependencies']
         extra = test_case['extra']
         
         # Simulate the logic from the vision service
         camera_name = "unknown_camera"
+        
         if extra and "camera_name" in extra:
             camera_name = extra["camera_name"]
             print(f"    ✅ Used camera_name from extra: {camera_name}")
         else:
-            # This would call self.get_primary_camera_name() in real code
-            camera_name = "camera"  # Assuming primary camera is named "camera"
-            print(f"    ✅ Used primary camera fallback: {camera_name}")
+            if dependencies:
+                if len(dependencies) == 1:
+                    camera_name = dependencies[0]
+                    print(f"    ✅ Used single camera from dependencies: {camera_name}")
+                else:
+                    camera_name = dependencies[0]  # Pick first
+                    print(f"    ⚠️  Multiple cameras, picked first: {camera_name}")
+                    print(f"    ⚠️  Available cameras: {dependencies}")
+                    print(f"    ⚠️  This could be wrong camera!")
         
-        print(f"    Result: {camera_name}")
-        if camera_name != "unknown_camera":
-            print(f"    ✅ Success - SMS would show 'Camera: {camera_name}'")
+        print(f"    Result: SMS would show 'Camera: {camera_name}'")
+        
+        if camera_name == test_case['expected']:
+            print(f"    ✅ Expected result achieved")
         else:
-            print(f"    ❌ Failed - SMS would still show 'Camera: unknown_camera'")
+            print(f"    ❌ Unexpected result (expected: {test_case['expected']})")
+
+def recommend_solution():
+    """Provide recommendations for fixing camera identification."""
+    print("\n" + "=" * 60)
+    print("📋 RECOMMENDED SOLUTION FOR CORRECT CAMERA IDENTIFICATION")
+    print("=" * 60)
+    
+    print("\n🎯 PROBLEM:")
+    print("  When one vision service depends on multiple cameras, it cannot")
+    print("  determine which camera actually detected the fall, so it always")
+    print("  reports the first camera in the dependencies list.")
+    
+    print("\n✅ SOLUTION:")
+    print("  Use separate vision services for each camera:")
+    print("  ")
+    print("  1. Each vision service should depend on only ONE camera")
+    print("  2. Each camera gets its own dedicated vision service")
+    print("  3. Camera name will always be correct in fall alerts")
+    
+    print("\n� CURRENT CONFIGURATION (Updated):")
+    print("  - lobby-center-north-vision → depends_on: ['Lobby_Center_North']")
+    print("  - cpw-awning-vision → depends_on: ['CPW_Awning_N_Facing']")
+    
+    print("\n📝 NEXT STEPS:")
+    print("  1. Apply the updated configuration")
+    print("  2. Restart viam-agent: sudo systemctl restart viam-agent")
+    print("  3. Check logs for camera dependency messages")
+    print("  4. Test fall detection on each camera separately")
+    print("  5. Verify SMS shows correct camera name")
 
 def main():
     """Run all tests."""
     print("🚨 Fall Detection Camera Name Test Suite")
-    print("=" * 50)
+    print("=" * 60)
     
     config_ok = test_camera_config()
     test_camera_name_logic()
+    recommend_solution()
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     if config_ok:
         print("✅ Configuration tests passed!")
-        print("\n📋 Next steps:")
-        print("1. Restart the viam-agent service")
-        print("2. Check logs for camera dependency messages")
-        print("3. Test fall detection to verify SMS shows correct camera name")
     else:
         print("❌ Configuration tests failed!")
-        print("\n🔧 Fix the configuration issues above and run test again")
+        print("   Please fix the configuration issues above")
 
 if __name__ == "__main__":
     main()

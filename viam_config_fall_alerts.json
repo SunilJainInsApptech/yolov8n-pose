@@ -20,7 +20,7 @@
   ],
   "services": [
     {
-      "name": "yolov8-pose-detector",
+      "name": "lobby-center-north-vision",
       "type": "vision",
       "namespace": "rdk",
       "model": "rig-guardian:yolov8n-pose:yolov8n-pose",
@@ -36,17 +36,42 @@
         "fall_confidence_threshold": 0.7,
         "alert_cooldown_seconds": 300
       },
-      "depends_on": ["camera"]
+      "depends_on": ["Lobby_Center_North"]
+    },
+    {
+      "name": "cpw-awning-vision",
+      "type": "vision",
+      "namespace": "rdk",
+      "model": "rig-guardian:yolov8n-pose:yolov8n-pose",
+      "attributes": {
+        "model_location": "/home/sunil/yolov8n-pose.pt",
+        "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib",
+        
+        "use_env_for_twilio": true,
+        
+        "fall_confidence_threshold": 0.7,
+        "alert_cooldown_seconds": 300
+      },
+      "depends_on": ["CPW_Awning_N_Facing"]
     }
   ],
   "components": [
     {
-      "name": "camera",
+      "name": "Lobby_Center_North",
       "type": "camera", 
       "namespace": "rdk",
       "model": "webcam",
       "attributes": {
         "video_path": "0"
+      }
+    },
+    {
+      "name": "CPW_Awning_N_Facing",
+      "type": "camera", 
+      "namespace": "rdk",
+      "model": "webcam",
+      "attributes": {
+        "video_path": "1"
       }
     }
   ]
