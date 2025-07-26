@@ -65,40 +65,19 @@
         "sync_interval_mins": 1,
         "tags": ["Fall"],
         "dataset_id": "68851ef0628dd018729e9541",
-        "additional_sync_paths": []
-      }
-    },
-    {
-      "name": "lobby_camera_data_capture",
-      "type": "data_manager",
-      "namespace": "rdk", 
-      "model": "rdk:builtin:builtin",
-      "attributes": {
         "capture_methods": [
           {
             "component": "Lobby_Center_North",
-            "method": "GetImage",
+            "method": "ReadImage",
             "capture_frequency_hz": 0,
             "disabled": true,
             "additional_params": {
               "mime_type": "image/jpeg"
             }
-          }
-        ],
-        "dataset_id": "68851ef0628dd018729e9541",
-        "tags": ["Fall", "Lobby_Center_North"]
-      }
-    },
-    {
-      "name": "cpw_camera_data_capture", 
-      "type": "data_manager",
-      "namespace": "rdk",
-      "model": "rdk:builtin:builtin", 
-      "attributes": {
-        "capture_methods": [
+          },
           {
-            "component": "CPW_Awning_N_Facing",
-            "method": "GetImage", 
+            "component": "CPW_Awning_N_Facing", 
+            "method": "ReadImage",
             "capture_frequency_hz": 0,
             "disabled": true,
             "additional_params": {
@@ -106,8 +85,7 @@
             }
           }
         ],
-        "dataset_id": "68851ef0628dd018729e9541",
-        "tags": ["Fall", "CPW_Awning_N_Facing"]
+        "additional_sync_paths": []
       }
     }
   ],
