@@ -13,6 +13,15 @@ import tempfile
 from twilio.rest import Client
 from viam.media.video import ViamImage
 
+# Try to import Viam DataManager service
+try:
+    from viam.services.data_manager import DataManager
+    VIAM_DATA_AVAILABLE = True
+except ImportError:
+    VIAM_DATA_AVAILABLE = False
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.warning("Viam DataManager not available - using file-based sync only")
+
 LOGGER = logging.getLogger(__name__)
 
 class FallDetectionAlerts:
@@ -234,69 +243,62 @@ class FallDetectionAlerts:
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):
-        """Save fall detection image to Viam-monitored directory for automatic sync"""
+        """Save fall detection image with proper naming for Viam data sync"""
         try:
-            # Save to Viam-monitored directory (syncs automatically every 1 minute)
-            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"fall_{camera_name}_{person_id}_{timestamp_str}.jpg"
+            # Use RFC3339 timestamp format that Viam expects
+            timestamp = datetime.now()
+            timestamp_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
             
-            # Organize by camera name for component mapping
-            camera_dir = os.path.join("/home/sunil/Documents/viam_captured_images", camera_name)
-            filepath = os.path.join(camera_dir, filename)
+            # Create filename that includes component (camera) information
+            # Format: [timestamp]_[component_name]_[method]_[file_extension]
+            filename = f"{timestamp_str}_{camera_name}_ReadImage.jpg"
             
-            LOGGER.info(f"🔄 Attempting to save fall image: {filepath}")
+            # Save to the main capture directory (not subdirectories)
+            filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
+            
+            LOGGER.info(f"🔄 Saving fall image with Viam-compatible naming: {filename}")
             LOGGER.info(f"📊 Image data size: {len(image.data)} bytes")
-            LOGGER.info(f"📁 Target directory: {os.path.dirname(filepath)}")
+            LOGGER.info(f"📁 Camera component: {camera_name}")
             
-            # Create directory and log the result
+            # Create directory
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            if os.path.exists(os.path.dirname(filepath)):
-                LOGGER.info(f"✅ Directory exists: {os.path.dirname(filepath)}")
-            else:
-                LOGGER.error(f"❌ Failed to create directory: {os.path.dirname(filepath)}")
-                return
             
-            # Save the image
+            # Save the image with the special naming convention
             with open(filepath, 'wb') as f:
                 f.write(image.data)
             
-            # Create metadata file for Viam data management
-            metadata_filepath = filepath.replace('.jpg', '.json')
-            metadata = {
-                "component_name": camera_name,
-                "component_type": "camera",
-                "dataset_id": "68851ef0628dd018729e9541",
-                "capture_metadata": {
-                    "fall_detection": True,
-                    "person_id": person_id,
-                    "confidence": confidence,
-                    "timestamp": datetime.now().isoformat(),
-                    "event_type": "fall_detected"
-                },
-                "tags": ["Fall", "FallDetection", camera_name]
-            }
+            # Create a companion text file with metadata (Viam can sync this too)
+            metadata_filename = f"{timestamp_str}_{camera_name}_FallMetadata.txt"
+            metadata_filepath = f"/home/sunil/Documents/viam_captured_images/{metadata_filename}"
+            
+            metadata_content = f"""Fall Detection Event
+Component: {camera_name}
+Person ID: {person_id}
+Confidence: {confidence:.3f}
+Timestamp: {timestamp.isoformat()}
+Dataset ID: 68851ef0628dd018729e9541
+Event Type: fall_detected
+"""
             
             try:
-                import json
                 with open(metadata_filepath, 'w') as meta_f:
-                    json.dump(metadata, meta_f, indent=2)
-                LOGGER.info(f"✅ Metadata file created: {metadata_filepath}")
+                    meta_f.write(metadata_content)
+                LOGGER.info(f"✅ Metadata file created: {metadata_filename}")
             except Exception as meta_error:
                 LOGGER.error(f"❌ Failed to create metadata file: {meta_error}")
             
-            # Verify the file was created
+            # Verify the main image file was created
             if os.path.exists(filepath):
                 file_size = os.path.getsize(filepath)
-                LOGGER.info(f"✅ Fall image saved successfully: {filepath}")
+                LOGGER.info(f"✅ Fall image saved successfully: {filename}")
                 LOGGER.info(f"📏 File size: {file_size} bytes")
-                LOGGER.info("🔄 Image will sync to Viam app within 1 minute")
+                LOGGER.info(f"🔄 Will sync to dataset 68851ef0628dd018729e9541 within 1 minute")
                 
-                # List directory contents for debugging
+                # Log directory contents for debugging
                 try:
                     files_in_dir = os.listdir(os.path.dirname(filepath))
-                    LOGGER.info(f"📂 Files in capture directory: {len(files_in_dir)} files")
-                    recent_files = [f for f in files_in_dir if f.startswith('fall_')][-5:]  # Last 5 fall images
-                    LOGGER.info(f"� Recent fall images: {recent_files}")
+                    fall_files = [f for f in files_in_dir if camera_name in f and 'ReadImage' in f]
+                    LOGGER.info(f"📂 {camera_name} images in directory: {len(fall_files)}")
                 except Exception as list_error:
                     LOGGER.error(f"❌ Could not list directory contents: {list_error}")
             else:
