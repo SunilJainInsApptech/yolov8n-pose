@@ -53,6 +53,21 @@
         "alert_cooldown_seconds": 300
       },
       "depends_on": ["CPW_Awning_N_Facing"]
+    },
+    {
+      "name": "data_manager-1",
+      "type": "data_manager",
+      "namespace": "rdk",
+      "model": "rdk:builtin:builtin",
+      "attributes": {
+        "capture_dir": "/home/sunil/Documents/viam_captured_images",
+        "capture_disabled": false,
+        "sync_interval_mins": 1,
+        "tags": ["Fall"],
+        "dataset_id": "68851ef0628dd018729e9541",
+        "additional_sync_paths": [],
+        "_comment": "Dataset ID for fall detection images - will be organized by camera component"
+      }
     }
   ],
   "components": [

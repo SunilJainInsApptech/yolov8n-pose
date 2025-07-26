@@ -239,7 +239,10 @@ class FallDetectionAlerts:
             # Save to Viam-monitored directory (syncs automatically every 1 minute)
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"fall_{camera_name}_{person_id}_{timestamp_str}.jpg"
-            filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
+            
+            # Organize by camera name for component mapping
+            camera_dir = os.path.join("/home/sunil/Documents/viam_captured_images", camera_name)
+            filepath = os.path.join(camera_dir, filename)
             
             LOGGER.info(f"🔄 Attempting to save fall image: {filepath}")
             LOGGER.info(f"📊 Image data size: {len(image.data)} bytes")
@@ -256,6 +259,30 @@ class FallDetectionAlerts:
             # Save the image
             with open(filepath, 'wb') as f:
                 f.write(image.data)
+            
+            # Create metadata file for Viam data management
+            metadata_filepath = filepath.replace('.jpg', '.json')
+            metadata = {
+                "component_name": camera_name,
+                "component_type": "camera",
+                "dataset_id": "68851ef0628dd018729e9541",
+                "capture_metadata": {
+                    "fall_detection": True,
+                    "person_id": person_id,
+                    "confidence": confidence,
+                    "timestamp": datetime.now().isoformat(),
+                    "event_type": "fall_detected"
+                },
+                "tags": ["Fall", "FallDetection", camera_name]
+            }
+            
+            try:
+                import json
+                with open(metadata_filepath, 'w') as meta_f:
+                    json.dump(metadata, meta_f, indent=2)
+                LOGGER.info(f"✅ Metadata file created: {metadata_filepath}")
+            except Exception as meta_error:
+                LOGGER.error(f"❌ Failed to create metadata file: {meta_error}")
             
             # Verify the file was created
             if os.path.exists(filepath):
