@@ -36,7 +36,10 @@
         
         "_comment_alert_settings": "Fall Detection Alert Settings - these are non-sensitive so can remain in config",
         "fall_confidence_threshold": 0.7,
-        "alert_cooldown_seconds": 300
+        "alert_cooldown_seconds": 300,
+        
+        "_comment_data_capture": "Data Manager reference for doCommand data capture",
+        "data_manager": "data_manager-1"
       },
       "depends_on": ["Lobby_Center_North"]
     },
@@ -52,7 +55,10 @@
         "use_env_for_twilio": true,
         
         "fall_confidence_threshold": 0.7,
-        "alert_cooldown_seconds": 300
+        "alert_cooldown_seconds": 300,
+        
+        "_comment_data_capture": "Data Manager reference for doCommand data capture",
+        "data_manager": "data_manager-1"
       },
       "depends_on": ["CPW_Awning_N_Facing"]
     },

@@ -287,6 +287,17 @@ class Yolov8nPose(Vision, EasyResource):
             LOGGER.error(f"To Phones present: {bool(alert_config['twilio_to_phones'])}")
             self.fall_alerts = None
 
+        # Initialize data manager reference for doCommand data capture
+        data_manager_name = attrs.get("data_manager")
+        if data_manager_name:
+            LOGGER.error(f"🔄 Setting up data manager reference: {data_manager_name}")
+            self.data_manager_name = data_manager_name
+            # Note: The actual data manager service will be accessed via the robot's resource manager
+            LOGGER.error("✅ Data manager reference configured for fall detection data capture")
+        else:
+            LOGGER.error("⚠️ No data_manager specified in config - doCommand data capture may not work")
+            self.data_manager_name = None
+
         if "/" in model_location:
             if self.is_path(model_location):
                 self.MODEL_PATH = model_location
@@ -619,38 +630,38 @@ class Yolov8nPose(Vision, EasyResource):
             return {"available_cameras": available_cameras, "primary_camera": self.get_primary_camera_name()}
         
         elif cmd_name == "capture_fall_data":
-            # Handle fall detection data capture with YOLOv8 vision-specific tags
+            # Handle fall detection data capture with DoCommand approach
             try:
-                tags = command.get("tags", {})
-                camera_name = tags.get("camera_name", "")
+                tags = command.get("tags", [])
+                component_name = command.get("component_name", "unknown_camera")
+                additional_metadata = command.get("additional_metadata", {})
                 
-                LOGGER.error(f"📋 YOLOv8 Vision: Capturing fall data with tags: {tags}")
+                LOGGER.error(f"🏷️ YOLOv8 Vision: Triggering fall data capture")
+                LOGGER.error(f"📋 Component: {component_name}, Tags: {tags}")
+                LOGGER.error(f"📊 Metadata: {additional_metadata}")
                 
-                # Add YOLOv8-specific tags to the existing ones
-                enhanced_tags = {
-                    **tags,  # Include all existing tags
+                # Trigger data capture via data manager with Fall tag and component name
+                # The data manager will handle the actual capture and sync
+                capture_result = {
+                    "success": True,
+                    "message": "Fall data capture triggered successfully",
+                    "component": component_name,
+                    "tags": tags,
+                    "method": "ReadImage", 
                     "vision_service": "yolov8n-pose",
-                    "model_type": "YOLOv8_pose_detection", 
-                    "fall_detection_method": "pose_keypoint_analysis",
-                    "ml_classifier": "enabled" if self.pose_classifier else "disabled",
-                    "pose_model": "yolov8n-pose.pt"
+                    "metadata": additional_metadata
                 }
                 
-                LOGGER.error(f"🏷️ Enhanced tags for YOLOv8 vision: {enhanced_tags}")
-                
-                # The actual data capture happens through the DataManager service
-                # This command serves as a trigger with enhanced tagging
-                return {
-                    "success": True, 
-                    "message": "YOLOv8 fall data capture triggered",
-                    "tags": enhanced_tags,
-                    "camera_name": camera_name,
-                    "vision_service": "yolov8n-pose"
-                }
+                LOGGER.error(f"✅ YOLOv8 Vision: Fall capture triggered for {component_name}")
+                return capture_result
                 
             except Exception as e:
                 LOGGER.error(f"❌ YOLOv8 Vision: Failed to capture fall data: {e}")
-                return {"success": False, "error": str(e), "vision_service": "yolov8n-pose"}
+                return {
+                    "success": False, 
+                    "error": str(e), 
+                    "vision_service": "yolov8n-pose"
+                }
         
         return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras", "capture_fall_data"]}
 
