@@ -70,30 +70,9 @@
       "attributes": {
         "capture_dir": "/home/sunil/Documents/viam_captured_images",
         "capture_disabled": false,
-        "sync_interval_mins": 1,
-        "tags": ["Fall"],
-        "dataset_id": "68851ef0628dd018729e9541",
-        "capture_methods": [
-          {
-            "component": "Lobby_Center_North",
-            "method": "ReadImage",
-            "capture_frequency_hz": 0,
-            "disabled": true,
-            "additional_params": {
-              "mime_type": "image/jpeg"
-            }
-          },
-          {
-            "component": "CPW_Awning_N_Facing", 
-            "method": "ReadImage",
-            "capture_frequency_hz": 0,
-            "disabled": true,
-            "additional_params": {
-              "mime_type": "image/jpeg"
-            }
-          }
-        ],
-        "additional_sync_paths": []
+        "tags": [],
+        "additional_sync_paths": [],
+        "sync_interval_mins": 1
       }
     }
   ],

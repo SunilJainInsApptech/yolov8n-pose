@@ -533,6 +533,19 @@ class Yolov8nPose(Vision, EasyResource):
                     # Send fall alert asynchronously (don't block the vision service)
                     try:
                         import asyncio
+                        
+                        # Get data manager instance if available
+                        data_manager = None
+                        if hasattr(self, 'data_manager_name') and self.data_manager_name:
+                            try:
+                                # Access data manager from robot dependencies if available
+                                # Note: This is a simplified approach - in production you'd access via robot.resource_manager
+                                LOGGER.error(f"🔄 Attempting to access data manager: {self.data_manager_name}")
+                                data_manager = None  # Will use file fallback for now
+                            except Exception as dm_error:
+                                LOGGER.error(f"⚠️ Could not access data manager {self.data_manager_name}: {dm_error}")
+                                data_manager = None
+                        
                         asyncio.create_task(
                             self.fall_alerts.send_fall_alert(
                                 camera_name=camera_name,
@@ -540,6 +553,7 @@ class Yolov8nPose(Vision, EasyResource):
                                 confidence=confidence,
                                 image=image,
                                 metadata=alert_metadata,
+                                data_manager=data_manager,
                                 vision_service=self
                             )
                         )
@@ -629,41 +643,7 @@ class Yolov8nPose(Vision, EasyResource):
             available_cameras = self.get_available_camera_names()
             return {"available_cameras": available_cameras, "primary_camera": self.get_primary_camera_name()}
         
-        elif cmd_name == "capture_fall_data":
-            # Handle fall detection data capture with DoCommand approach
-            try:
-                tags = command.get("tags", [])
-                component_name = command.get("component_name", "unknown_camera")
-                additional_metadata = command.get("additional_metadata", {})
-                
-                LOGGER.error(f"🏷️ YOLOv8 Vision: Triggering fall data capture")
-                LOGGER.error(f"📋 Component: {component_name}, Tags: {tags}")
-                LOGGER.error(f"📊 Metadata: {additional_metadata}")
-                
-                # Trigger data capture via data manager with Fall tag and component name
-                # The data manager will handle the actual capture and sync
-                capture_result = {
-                    "success": True,
-                    "message": "Fall data capture triggered successfully",
-                    "component": component_name,
-                    "tags": tags,
-                    "method": "ReadImage", 
-                    "vision_service": "yolov8n-pose",
-                    "metadata": additional_metadata
-                }
-                
-                LOGGER.error(f"✅ YOLOv8 Vision: Fall capture triggered for {component_name}")
-                return capture_result
-                
-            except Exception as e:
-                LOGGER.error(f"❌ YOLOv8 Vision: Failed to capture fall data: {e}")
-                return {
-                    "success": False, 
-                    "error": str(e), 
-                    "vision_service": "yolov8n-pose"
-                }
-        
-        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras", "capture_fall_data"]}
+        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras"]}
 
     async def extract_keypoints(self, image: ViamImage) -> List[dict]:
         """Extract only keypoints from detected persons."""

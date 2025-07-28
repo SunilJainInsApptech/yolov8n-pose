@@ -346,46 +346,111 @@ class FallDetectionAlerts:
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_manager=None, vision_service=None):
-        """Save fall detection image using vision service doCommand to trigger data capture with Fall tag"""
+        """Save fall detection image using data manager camera capture with Fall tag"""
         try:
             LOGGER.info(f"🔄 Triggering fall image capture for camera: {camera_name}")
             LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Person: {person_id}, Confidence: {confidence:.3f}")
             
-            # Use vision service's doCommand to trigger data capture with Fall tag
-            if vision_service:
+            # Use data manager to capture from camera with Fall tag
+            if data_manager and vision_service:
                 try:
-                    # Create doCommand to capture data with Fall tag and camera component
-                    capture_command = {
-                        "command": "capture_fall_data",
-                        "tags": ["Fall"],  # Add Fall tag as requested
-                        "component_name": camera_name,  # Set camera name as component
-                        "method_name": "ReadImage",
-                        "additional_metadata": {
+                    # Get the camera component name from the vision service
+                    # The vision service should have access to the camera it depends on
+                    
+                    LOGGER.info(f"🏷️ Triggering data manager capture with Fall tag for camera: {camera_name}")
+                    
+                    # Use data manager's capture functionality with tags
+                    # The data manager will capture from the camera component with the Fall tag
+                    capture_result = await data_manager.capture(
+                        component_name=camera_name,
+                        method_name="ReadImage",
+                        tags=["Fall"],
+                        additional_metadata={
                             "person_id": person_id,
                             "confidence": f"{confidence:.3f}",
-                            "event_type": "fall_detected"
+                            "event_type": "fall_detected",
+                            "vision_service": "yolov8n-pose"
                         }
-                    }
+                    )
                     
-                    LOGGER.info(f"🏷️ Executing doCommand with Fall tag for component: {camera_name}")
-                    
-                    # Execute the doCommand to trigger tagged data capture
-                    result = await vision_service.do_command(capture_command)
-                    
-                    LOGGER.info(f"✅ Vision service data capture completed: {result}")
+                    LOGGER.info(f"✅ Data manager capture completed: {capture_result}")
                     LOGGER.info(f"🎯 Component: {camera_name}, Tag: Fall, Person: {person_id}")
                     
-                    return {"status": "success", "method": "doCommand", "result": result}
+                    return {"status": "success", "method": "data_manager_capture", "result": capture_result}
                     
-                except Exception as vision_error:
-                    LOGGER.error(f"❌ Vision service doCommand failed: {vision_error}")
-                    return {"status": "error", "method": "doCommand", "error": str(vision_error)}
+                except Exception as dm_error:
+                    LOGGER.error(f"❌ Data manager capture failed: {dm_error}")
+                    LOGGER.info("🔄 Falling back to file-based method")
+                    
+                    # Fallback: Save to the data manager's capture directory
+                    return await self._save_fall_image_to_file(camera_name, person_id, confidence, image)
+                    
             else:
-                LOGGER.warning("⚠️ No vision service provided - cannot capture with doCommand")
-                return {"status": "error", "method": "doCommand", "error": "No vision service"}
+                LOGGER.warning("⚠️ No data manager or vision service provided - using file-based fallback")
+                return await self._save_fall_image_to_file(camera_name, person_id, confidence, image)
                 
         except Exception as e:
             LOGGER.error(f"❌ Error in save_fall_image: {e}")
             import traceback
             LOGGER.error(traceback.format_exc())
             return {"status": "error", "method": "save_fall_image", "error": str(e)}
+    
+    async def _save_fall_image_to_file(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):
+        """Fallback method to save image directly to data manager's capture directory"""
+        try:
+            from datetime import datetime
+            import os
+            
+            # Use the data manager's capture directory
+            capture_dir = "/home/sunil/Documents/viam_captured_images"
+            timestamp = datetime.utcnow()
+            
+            # Create filename with proper Viam naming convention for data manager to recognize
+            # Format: [timestamp]_[component_name]_[method_name].[extension]
+            timestamp_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            filename = f"{timestamp_str}_{camera_name}_ReadImage.jpg"
+            filepath = os.path.join(capture_dir, filename)
+            
+            # Ensure directory exists
+            os.makedirs(capture_dir, exist_ok=True)
+            
+            # Save the image
+            with open(filepath, 'wb') as f:
+                f.write(image.data)
+            
+            # Create metadata file with Fall tag for data manager to process
+            metadata_filename = f"{timestamp_str}_{camera_name}_ReadImage.json"
+            metadata_filepath = os.path.join(capture_dir, metadata_filename)
+            
+            import json
+            metadata_content = {
+                "component_name": camera_name,
+                "method_name": "ReadImage",
+                "tags": ["Fall"],
+                "timestamp": timestamp.isoformat(),
+                "additional_metadata": {
+                    "person_id": person_id,
+                    "confidence": f"{confidence:.3f}",
+                    "event_type": "fall_detected",
+                    "vision_service": "yolov8n-pose"
+                }
+            }
+            
+            with open(metadata_filepath, 'w') as meta_f:
+                json.dump(metadata_content, meta_f, indent=2)
+            
+            if os.path.exists(filepath):
+                file_size = os.path.getsize(filepath)
+                LOGGER.info(f"✅ Fall image saved: {filename} ({file_size} bytes)")
+                LOGGER.info(f"📋 Metadata saved: {metadata_filename}")
+                LOGGER.info(f"🎯 Component: {camera_name}, Tags: ['Fall']")
+                LOGGER.info("🔄 Files will sync to Viam within 1 minute")
+                
+                return {"status": "success", "method": "file_fallback", "filename": filename, "path": filepath}
+            else:
+                LOGGER.error(f"❌ Failed to save: {filepath}")
+                return {"status": "error", "method": "file_fallback", "error": "File not saved"}
+                
+        except Exception as e:
+            LOGGER.error(f"❌ Error in file fallback: {e}")
+            return {"status": "error", "method": "file_fallback", "error": str(e)}
