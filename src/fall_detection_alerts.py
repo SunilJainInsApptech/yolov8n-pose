@@ -13,10 +13,9 @@ import tempfile
 from twilio.rest import Client
 from viam.media.video import ViamImage
 
-# Try to import Viam DataManager service and DataClient
+# Try to import Viam DataManager service
 try:
     from viam.services.data_manager import DataManager
-    from viam.app.data_client import DataClient
     VIAM_DATA_AVAILABLE = True
 except ImportError:
     VIAM_DATA_AVAILABLE = False
@@ -165,7 +164,8 @@ class FallDetectionAlerts:
                             person_id: str, 
                             confidence: float,
                             image: ViamImage,
-                            metadata: Optional[Dict[str, Any]] = None) -> bool:
+                            metadata: Optional[Dict[str, Any]] = None,
+                            data_manager=None) -> bool:
         """Send fall detection alert via Twilio SMS"""
         
         try:
@@ -178,7 +178,7 @@ class FallDetectionAlerts:
             self.last_alert_time[person_id] = timestamp
             
             # Save image to Viam-monitored directory for automatic sync
-            await self.save_fall_image(camera_name, person_id, confidence, image)
+            await self.save_fall_image(camera_name, person_id, confidence, image, data_manager)
             
             # Save image locally for SMS reference
             image_path = await self.save_image_locally(image, person_id)
@@ -344,49 +344,14 @@ class FallDetectionAlerts:
             LOGGER.error(f"❌ Failed to send webhook notification: {e}")
             return False
     
-    async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_client=None, part_id: Optional[str] = None):
-        """Save fall detection image directly to Viam dataset using DataClient API"""
+    async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_manager=None):
+        """Save fall detection image with proper naming for DataManager to sync to dataset"""
         try:
             timestamp = datetime.utcnow()
             DATASET_ID = "68851ef0628dd018729e9541"
             
-            LOGGER.info(f"🔄 Uploading fall image to Viam dataset via DataClient API")
-            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Component: {camera_name}")
-            
-            # If data_client is provided, upload directly to Viam dataset
-            if data_client and part_id:
-                try:
-                    # Upload binary data to Viam
-                    file_id = await data_client.binary_data_capture_upload(
-                        part_id=part_id,
-                        component_type="camera",
-                        component_name=camera_name,
-                        method_name="ReadImage",
-                        data_request_times=[timestamp, timestamp],
-                        file_extension=".jpg",
-                        binary_data=image.data
-                    )
-                    
-                    LOGGER.info(f"📤 Image uploaded to Viam, file_id: {file_id}")
-                    
-                    # Add the image to the dataset
-                    await data_client.add_binary_data_to_dataset_by_ids(
-                        binary_ids=[file_id],
-                        dataset_id=DATASET_ID
-                    )
-                    
-                    LOGGER.info(f"✅ Fall image added to dataset {DATASET_ID}")
-                    LOGGER.info(f"🎯 Component: {camera_name} → Dataset: {DATASET_ID}")
-                    LOGGER.info(f"📋 Fall confidence: {confidence:.1%}, Person: {person_id}")
-                    
-                    return file_id
-                    
-                except Exception as api_error:
-                    LOGGER.error(f"❌ Failed to upload via DataClient API: {api_error}")
-                    # Fall back to file-based method below
-                    
-            # Fallback: Save to local file system for DataManager to sync
-            LOGGER.info("🔄 Using fallback file-based sync method")
+            LOGGER.info(f"🔄 Saving fall image for DataManager to sync to dataset")
+            LOGGER.info(f"� Image size: {len(image.data)} bytes, Component: {camera_name}")
             
             # Use exact timestamp format that Viam data manager expects
             # Format: YYYY-MM-DDTHH:MM:SS.fffffffZ (RFC3339 with microseconds)
