@@ -60,6 +60,16 @@ class FallDetectionAlerts:
         self.cooldown_seconds = config.get('alert_cooldown_seconds', 300)
         self.last_alert_time = {}  # Track last alert time per person
         
+        # Push notification settings
+        self.notify_service_sid = (
+            os.environ.get('TWILIO_NOTIFY_SERVICE_SID') or
+            config.get('twilio_notify_service_sid')
+        )
+        self.push_notification_url = (
+            os.environ.get('RIGGUARDIAN_WEBHOOK_URL') or
+            config.get('rigguardian_webhook_url', 'https://rigguardian.com/api/fall-alert')
+        )
+        
         # Log what source we're using (without exposing credentials)
         if os.environ.get('TWILIO_ACCOUNT_SID'):
             LOGGER.info("✅ Using Twilio credentials from environment variables")
@@ -201,6 +211,20 @@ class FallDetectionAlerts:
                 except Exception as e:
                     LOGGER.error(f"❌ Failed to send SMS to {phone_number}: {e}")
             
+            # Send push notification to rigguardian.com app
+            push_success = await self.send_push_notification(
+                camera_name=camera_name,
+                person_id=person_id,
+                confidence=confidence,
+                timestamp=timestamp,
+                metadata=metadata
+            )
+            
+            if push_success:
+                LOGGER.info("📱 Push notification sent to rigguardian.com successfully")
+            else:
+                LOGGER.warning("⚠️ Push notification failed - SMS alert still sent")
+            
             if success_count > 0:
                 LOGGER.info(f"✅ Fall alert sent successfully to {success_count}/{len(self.to_phones)} recipients")
                 return True
@@ -240,6 +264,85 @@ class FallDetectionAlerts:
             
         except Exception as e:
             LOGGER.error(f"❌ Error sending test alert: {e}")
+            return False
+    
+    async def send_push_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Send push notification to rigguardian.com web app"""
+        try:
+            # For web-based apps, use webhook approach (not Twilio Notify)
+            # Twilio Notify is for mobile apps only
+            return await self.send_webhook_notification(camera_name, person_id, confidence, timestamp, metadata)
+                
+        except Exception as e:
+            LOGGER.error(f"❌ Error sending push notification: {e}")
+            return False
+    
+    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Send notification via webhook to rigguardian.com web app"""
+        try:
+            import aiohttp
+            import json
+            
+            # Create webhook payload optimized for web app notifications
+            webhook_data = {
+                "alert_type": "fall_detection",
+                "timestamp": timestamp.isoformat(),
+                "camera_name": camera_name,
+                "person_id": person_id,
+                "confidence": confidence,
+                "severity": "critical",
+                "location": camera_name,
+                "title": "🚨 Fall Alert - Immediate Action Required",
+                "message": f"Fall detected on {camera_name} with {confidence:.1%} confidence",
+                "requires_immediate_attention": True,
+                "notification_type": "web_push",  # Indicate this is for web app
+                "metadata": metadata or {},
+                "actions": [
+                    {"action": "view_camera", "title": "View Camera"},
+                    {"action": "acknowledge", "title": "Acknowledge"},
+                    {"action": "dispatch_help", "title": "Send Help"}
+                ]
+            }
+            
+            LOGGER.info(f"🔄 Sending webhook notification to rigguardian.com web app")
+            LOGGER.info(f"📊 Payload: {camera_name} fall alert at {timestamp.strftime('%H:%M:%S')}")
+            
+            # Send HTTP POST to rigguardian.com
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.push_notification_url,
+                    json=webhook_data,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'FallDetectionSystem/1.0',
+                        'X-Alert-Type': 'fall_detection',
+                        'X-Severity': 'critical'
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    response_text = await response.text()
+                    
+                    if response.status == 200:
+                        LOGGER.info(f"✅ Web notification sent to rigguardian.com successfully")
+                        LOGGER.info(f"📱 Response: {response_text}")
+                        return True
+                    else:
+                        LOGGER.error(f"❌ Webhook failed with status {response.status}")
+                        LOGGER.error(f"❌ Response: {response_text}")
+                        return False
+                        
+        except ImportError:
+            LOGGER.error("❌ aiohttp not installed - cannot send webhook notifications")
+            LOGGER.error("💡 Install with: pip install aiohttp")
+            return False
+        except aiohttp.ClientTimeout:
+            LOGGER.error("❌ Webhook request timed out (>10 seconds)")
+            return False
+        except aiohttp.ClientError as e:
+            LOGGER.error(f"❌ HTTP client error: {e}")
+            return False
+        except Exception as e:
+            LOGGER.error(f"❌ Failed to send webhook notification: {e}")
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):

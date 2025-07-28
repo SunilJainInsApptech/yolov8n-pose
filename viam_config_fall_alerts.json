@@ -6,7 +6,9 @@
         "TWILIO_AUTH_TOKEN": "REPLACE_WITH_YOUR_TWILIO_AUTH_TOKEN_FROM_CONSOLE",
         "TWILIO_FROM_PHONE": "+1234567890",
         "TWILIO_TO_PHONES": "+1987654321,+1555123456",
-        "TWILIO_WEBHOOK_URL": "https://your-server.com/fall-images"
+        "TWILIO_WEBHOOK_URL": "https://your-server.com/fall-images",
+        "TWILIO_NOTIFY_SERVICE_SID": "REPLACE_WITH_TWILIO_NOTIFY_SERVICE_SID",
+        "RIGGUARDIAN_WEBHOOK_URL": "https://rigguardian.com/api/fall-alert"
       }
     }
   },
