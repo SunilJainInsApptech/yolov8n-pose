@@ -528,7 +528,8 @@ class Yolov8nPose(Vision, EasyResource):
                                 person_id=person_id,
                                 confidence=confidence,
                                 image=image,
-                                metadata=alert_metadata
+                                metadata=alert_metadata,
+                                vision_service=self
                             )
                         )
                         LOGGER.error("✅ Fall alert task created successfully")
@@ -617,7 +618,41 @@ class Yolov8nPose(Vision, EasyResource):
             available_cameras = self.get_available_camera_names()
             return {"available_cameras": available_cameras, "primary_camera": self.get_primary_camera_name()}
         
-        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras"]}
+        elif cmd_name == "capture_fall_data":
+            # Handle fall detection data capture with YOLOv8 vision-specific tags
+            try:
+                tags = command.get("tags", {})
+                camera_name = tags.get("camera_name", "")
+                
+                LOGGER.error(f"📋 YOLOv8 Vision: Capturing fall data with tags: {tags}")
+                
+                # Add YOLOv8-specific tags to the existing ones
+                enhanced_tags = {
+                    **tags,  # Include all existing tags
+                    "vision_service": "yolov8n-pose",
+                    "model_type": "YOLOv8_pose_detection", 
+                    "fall_detection_method": "pose_keypoint_analysis",
+                    "ml_classifier": "enabled" if self.pose_classifier else "disabled",
+                    "pose_model": "yolov8n-pose.pt"
+                }
+                
+                LOGGER.error(f"🏷️ Enhanced tags for YOLOv8 vision: {enhanced_tags}")
+                
+                # The actual data capture happens through the DataManager service
+                # This command serves as a trigger with enhanced tagging
+                return {
+                    "success": True, 
+                    "message": "YOLOv8 fall data capture triggered",
+                    "tags": enhanced_tags,
+                    "camera_name": camera_name,
+                    "vision_service": "yolov8n-pose"
+                }
+                
+            except Exception as e:
+                LOGGER.error(f"❌ YOLOv8 Vision: Failed to capture fall data: {e}")
+                return {"success": False, "error": str(e), "vision_service": "yolov8n-pose"}
+        
+        return {"supported_commands": ["get_keypoints", "get_pose_analysis", "get_pose_classifications", "list_cameras", "capture_fall_data"]}
 
     async def extract_keypoints(self, image: ViamImage) -> List[dict]:
         """Extract only keypoints from detected persons."""

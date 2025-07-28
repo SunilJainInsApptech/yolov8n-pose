@@ -13,7 +13,51 @@ import tempfile
 from twilio.rest import Client
 from viam.media.video import ViamImage
 
-# Try to import Viam DataManager service
+# Try t        try:
+            timestamp = datetime.utcnow()
+            DATASET_ID = "68851ef0628dd018729e9541"
+            
+            LOGGER.info(f"🔄 Capturing fall image for dataset sync")
+            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Component: {camera_name}")
+            
+            # Try to use vision service's doCommand to capture data with tags
+            if vision_service:
+                try:
+                    # Use doCommand to trigger data capture with custom tags
+                    capture_command = {
+                        "command": "capture_fall_data",
+                        "tags": {
+                            "event_type": "Fall",
+                            "component": "Camera", 
+                            "camera_name": camera_name,
+                            "person_id": person_id,
+                            "confidence": f"{confidence:.3f}",
+                            "dataset_id": DATASET_ID,
+                            "fall_detected": "true",
+                            "alert_priority": "critical"
+                        },
+                        "method_name": "ReadImage",
+                        "component_type": "camera",
+                        "component_name": camera_name
+                    }
+                    
+                    LOGGER.info(f"🏷️ Capturing with tags: Fall detection on {camera_name}")
+                    
+                    # Execute the doCommand to trigger tagged data capture
+                    result = await vision_service.do_command(capture_command)
+                    
+                    LOGGER.info(f"✅ Vision service data capture completed: {result}")
+                    LOGGER.info(f"🎯 Component: {camera_name} → Dataset: {DATASET_ID} (tagged)")
+                    LOGGER.info("📋 Tags: event_type=Fall, component=Camera")
+                    
+                    return result
+                    
+                except Exception as vision_error:
+                    LOGGER.error(f"❌ Vision service doCommand failed: {vision_error}")
+                    LOGGER.info("🔄 Falling back to file-based method")
+                    
+            # Fallback: Save to local file system for DataManager to sync
+            LOGGER.info("🔄 Using fallback file-based sync method")rt Viam DataManager service
 try:
     from viam.services.data_manager import DataManager
     VIAM_DATA_AVAILABLE = True
@@ -165,8 +209,7 @@ class FallDetectionAlerts:
                             confidence: float,
                             image: ViamImage,
                             metadata: Optional[Dict[str, Any]] = None,
-                            data_manager=None,
-                            vision_service=None) -> bool:
+                            data_manager=None) -> bool:
         """Send fall detection alert via Twilio SMS"""
         
         try:
@@ -179,7 +222,7 @@ class FallDetectionAlerts:
             self.last_alert_time[person_id] = timestamp
             
             # Save image to Viam-monitored directory for automatic sync
-            await self.save_fall_image(camera_name, person_id, confidence, image, data_manager, vision_service)
+            await self.save_fall_image(camera_name, person_id, confidence, image, data_manager)
             
             # Save image locally for SMS reference
             image_path = await self.save_image_locally(image, person_id)
@@ -351,47 +394,8 @@ class FallDetectionAlerts:
             timestamp = datetime.utcnow()
             DATASET_ID = "68851ef0628dd018729e9541"
             
-            LOGGER.info(f"🔄 Capturing fall image for dataset sync")
-            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Component: {camera_name}")
-            
-            # Try to use vision service's doCommand to capture data with tags
-            if vision_service:
-                try:
-                    # Use doCommand to trigger data capture with custom tags
-                    capture_command = {
-                        "command": "capture_fall_data",
-                        "tags": {
-                            "event_type": "Fall",
-                            "component": "Camera", 
-                            "camera_name": camera_name,
-                            "person_id": person_id,
-                            "confidence": f"{confidence:.3f}",
-                            "dataset_id": DATASET_ID,
-                            "fall_detected": "true",
-                            "alert_priority": "critical"
-                        },
-                        "method_name": "ReadImage",
-                        "component_type": "camera",
-                        "component_name": camera_name
-                    }
-                    
-                    LOGGER.info(f"🏷️ Capturing with tags: Fall detection on {camera_name}")
-                    
-                    # Execute the doCommand to trigger tagged data capture
-                    result = await vision_service.do_command(capture_command)
-                    
-                    LOGGER.info(f"✅ Vision service data capture completed: {result}")
-                    LOGGER.info(f"🎯 Component: {camera_name} → Dataset: {DATASET_ID} (tagged)")
-                    LOGGER.info("📋 Tags: event_type=Fall, component=Camera")
-                    
-                    return result
-                    
-                except Exception as vision_error:
-                    LOGGER.error(f"❌ Vision service doCommand failed: {vision_error}")
-                    LOGGER.info("🔄 Falling back to file-based method")
-                    
-            # Fallback: Save to local file system for DataManager to sync
-            LOGGER.info("🔄 Using fallback file-based sync method")
+            LOGGER.info(f"🔄 Saving fall image for DataManager to sync to dataset")
+            LOGGER.info(f"� Image size: {len(image.data)} bytes, Component: {camera_name}")
             
             # Use exact timestamp format that Viam data manager expects
             # Format: YYYY-MM-DDTHH:MM:SS.fffffffZ (RFC3339 with microseconds)
@@ -432,17 +436,13 @@ component_type: camera
             if os.path.exists(filepath):
                 file_size = os.path.getsize(filepath)
                 LOGGER.info(f"✅ Fall image saved: {filename} ({file_size} bytes)")
-                LOGGER.info(f"📋 Metadata saved: {metadata_filename}")
+                LOGGER.info(f"� Metadata saved: {metadata_filename}")
                 LOGGER.info(f"🎯 Component: {camera_name} → Dataset: 68851ef0628dd018729e9541")
                 LOGGER.info("🔄 Files will sync to Viam within 1 minute")
-                
-                return {"status": "saved", "filename": filename, "path": filepath}
             else:
                 LOGGER.error(f"❌ Failed to save: {filepath}")
-                return {"status": "error", "message": "File not saved"}
                 
         except Exception as e:
             LOGGER.error(f"❌ Error saving fall image: {e}")
             import traceback
             LOGGER.error(traceback.format_exc())
-            return {"status": "error", "message": str(e)}
