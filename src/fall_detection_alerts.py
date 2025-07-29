@@ -284,49 +284,27 @@ class FallDetectionAlerts:
             import aiohttp
             import json
             
-            # Create a simple, clean webhook payload
-            # Start with minimal data to avoid "Invalid payload structure" error
+            # Create webhook payload matching rigguardian.com expected structure exactly
             webhook_data = {
-                "event": "fall_detected",
+                "alert_type": "fall",
                 "timestamp": timestamp.isoformat(),
-                "camera": camera_name,
+                "camera_name": camera_name,
+                "person_id": person_id,
                 "confidence": confidence,
-                "message": f"Fall detected on {camera_name}"
+                "severity": "critical",
+                "location": camera_name,  # Using camera name as location
+                "title": "🚨 Fall Alert - Immediate Action Required",
+                "message": f"Fall detected on {camera_name} with {confidence:.1%} confidence",
+                "requires_immediate_attention": True,
+                "notification_type": "web_push"
             }
             
-            # Optionally add more data (comment out if it causes issues)
-            webhook_data.update({
-                "person_id": person_id,
-                "severity": "critical",
-                "details": f"Fall detected with {confidence:.1%} confidence"
-            })
+            LOGGER.info(f"🔄 Sending webhook to rigguardian.com with expected structure")
+            LOGGER.info(f"📊 Fall alert: {camera_name} at {timestamp.strftime('%H:%M:%S')} ({confidence:.1%} confidence)")
             
-            # Add metadata if present
-            if metadata:
-                webhook_data["metadata"] = metadata
+            # Debug: Log the payload structure
+            LOGGER.info(f"🔍 Rigguardian payload: {json.dumps(webhook_data, indent=2)}")
             
-            # Add image data if provided (temporarily disabled for testing)
-            # TODO: Re-enable after fixing payload structure issue
-            if False and image and image.data:  # Temporarily disabled
-                try:
-                    import base64
-                    image_b64 = base64.b64encode(image.data).decode('utf-8')
-                    webhook_data["image"] = {
-                        "data": image_b64,
-                        "format": "jpeg",
-                        "size_bytes": len(image.data)
-                    }
-                    LOGGER.info(f"📸 Including image in webhook ({len(image.data)} bytes)")
-                except Exception as img_error:
-                    LOGGER.error(f"❌ Failed to encode image for webhook: {img_error}")
-            
-            LOGGER.info(f"🔄 Sending simplified webhook to rigguardian.com")
-            LOGGER.info(f"📊 Event: {webhook_data['event']} from {camera_name} at {timestamp.strftime('%H:%M:%S')}")
-            
-            # Debug: Log the complete payload structure
-            LOGGER.info(f"🔍 Complete payload: {json.dumps(webhook_data, indent=2)}")
-            
-            # Send HTTP POST to rigguardian.com
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.push_notification_url,
@@ -334,14 +312,15 @@ class FallDetectionAlerts:
                     headers={
                         'Content-Type': 'application/json',
                         'User-Agent': 'FallDetectionSystem/1.0',
-                        'X-Event-Type': 'fall_detection'
+                        'X-Alert-Type': 'fall',
+                        'X-Severity': 'critical'
                     },
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     response_text = await response.text()
                     
                     if response.status == 200:
-                        LOGGER.info(f"✅ Web notification sent successfully")
+                        LOGGER.info(f"✅ Webhook sent successfully to rigguardian.com")
                         LOGGER.info(f"📱 Response: {response_text}")
                         return True
                     else:
