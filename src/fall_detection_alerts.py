@@ -217,7 +217,8 @@ class FallDetectionAlerts:
                 person_id=person_id,
                 confidence=confidence,
                 timestamp=timestamp,
-                metadata=metadata
+                metadata=metadata,
+                image=image
             )
             
             if push_success:
@@ -266,46 +267,64 @@ class FallDetectionAlerts:
             LOGGER.error(f"❌ Error sending test alert: {e}")
             return False
     
-    async def send_push_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def send_push_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
         """Send push notification to rigguardian.com web app"""
         try:
             # For web-based apps, use webhook approach (not Twilio Notify)
             # Twilio Notify is for mobile apps only
-            return await self.send_webhook_notification(camera_name, person_id, confidence, timestamp, metadata)
+            return await self.send_webhook_notification(camera_name, person_id, confidence, timestamp, metadata, image)
                 
         except Exception as e:
             LOGGER.error(f"❌ Error sending push notification: {e}")
             return False
     
-    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
         """Send notification via webhook to rigguardian.com web app"""
         try:
             import aiohttp
             import json
             
-            # Create webhook payload optimized for web app notifications
+            # Create a simple, clean webhook payload
+            # Start with minimal data to avoid "Invalid payload structure" error
             webhook_data = {
-                "alert_type": "fall_detection",
+                "event": "fall_detected",
                 "timestamp": timestamp.isoformat(),
-                "camera_name": camera_name,
-                "person_id": person_id,
+                "camera": camera_name,
                 "confidence": confidence,
-                "severity": "critical",
-                "location": camera_name,
-                "title": "🚨 Fall Alert - Immediate Action Required",
-                "message": f"Fall detected on {camera_name} with {confidence:.1%} confidence",
-                "requires_immediate_attention": True,
-                "notification_type": "web_push",  # Indicate this is for web app
-                "metadata": metadata or {},
-                "actions": [
-                    {"action": "view_camera", "title": "View Camera"},
-                    {"action": "acknowledge", "title": "Acknowledge"},
-                    {"action": "dispatch_help", "title": "Send Help"}
-                ]
+                "message": f"Fall detected on {camera_name}"
             }
             
-            LOGGER.info(f"🔄 Sending webhook notification to rigguardian.com web app")
-            LOGGER.info(f"📊 Payload: {camera_name} fall alert at {timestamp.strftime('%H:%M:%S')}")
+            # Optionally add more data (comment out if it causes issues)
+            webhook_data.update({
+                "person_id": person_id,
+                "severity": "critical",
+                "details": f"Fall detected with {confidence:.1%} confidence"
+            })
+            
+            # Add metadata if present
+            if metadata:
+                webhook_data["metadata"] = metadata
+            
+            # Add image data if provided (temporarily disabled for testing)
+            # TODO: Re-enable after fixing payload structure issue
+            if False and image and image.data:  # Temporarily disabled
+                try:
+                    import base64
+                    image_b64 = base64.b64encode(image.data).decode('utf-8')
+                    webhook_data["image"] = {
+                        "data": image_b64,
+                        "format": "jpeg",
+                        "size_bytes": len(image.data)
+                    }
+                    LOGGER.info(f"📸 Including image in webhook ({len(image.data)} bytes)")
+                except Exception as img_error:
+                    LOGGER.error(f"❌ Failed to encode image for webhook: {img_error}")
+            
+            LOGGER.info(f"🔄 Sending simplified webhook to rigguardian.com")
+            LOGGER.info(f"📊 Event: {webhook_data['event']} from {camera_name} at {timestamp.strftime('%H:%M:%S')}")
+            
+            # Debug: Log the complete payload structure
+            LOGGER.info(f"🔍 Complete payload: {json.dumps(webhook_data, indent=2)}")
             
             # Send HTTP POST to rigguardian.com
             async with aiohttp.ClientSession() as session:
@@ -315,34 +334,40 @@ class FallDetectionAlerts:
                     headers={
                         'Content-Type': 'application/json',
                         'User-Agent': 'FallDetectionSystem/1.0',
-                        'X-Alert-Type': 'fall_detection',
-                        'X-Severity': 'critical'
+                        'X-Event-Type': 'fall_detection'
                     },
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     response_text = await response.text()
                     
                     if response.status == 200:
-                        LOGGER.info(f"✅ Web notification sent to rigguardian.com successfully")
+                        LOGGER.info(f"✅ Web notification sent successfully")
                         LOGGER.info(f"📱 Response: {response_text}")
                         return True
                     else:
                         LOGGER.error(f"❌ Webhook failed with status {response.status}")
                         LOGGER.error(f"❌ Response: {response_text}")
+                        
+                        # Try to parse response as JSON for error details
+                        try:
+                            response_json = json.loads(response_text)
+                            if "error" in response_json:
+                                LOGGER.error(f"🔍 Server error: {response_json['error']}")
+                            if "expected" in response_json:
+                                LOGGER.error(f"💡 Expected format: {response_json['expected']}")
+                        except:
+                            pass
+                        
                         return False
                         
         except ImportError:
-            LOGGER.error("❌ aiohttp not installed - cannot send webhook notifications")
-            LOGGER.error("💡 Install with: pip install aiohttp")
+            LOGGER.error("❌ aiohttp not installed - install with: pip install aiohttp")
             return False
         except aiohttp.ClientTimeout:
-            LOGGER.error("❌ Webhook request timed out (>10 seconds)")
-            return False
-        except aiohttp.ClientError as e:
-            LOGGER.error(f"❌ HTTP client error: {e}")
+            LOGGER.error("❌ Webhook request timed out")
             return False
         except Exception as e:
-            LOGGER.error(f"❌ Failed to send webhook notification: {e}")
+            LOGGER.error(f"❌ Webhook error: {e}")
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_manager=None, vision_service=None):
