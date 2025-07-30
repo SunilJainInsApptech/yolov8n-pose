@@ -13,51 +13,7 @@ import tempfile
 from twilio.rest import Client
 from viam.media.video import ViamImage
 
-# Try t        try:
-            timestamp = datetime.utcnow()
-            DATASET_ID = "68851ef0628dd018729e9541"
-            
-            LOGGER.info(f"🔄 Capturing fall image for dataset sync")
-            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Component: {camera_name}")
-            
-            # Try to use vision service's doCommand to capture data with tags
-            if vision_service:
-                try:
-                    # Use doCommand to trigger data capture with custom tags
-                    capture_command = {
-                        "command": "capture_fall_data",
-                        "tags": {
-                            "event_type": "Fall",
-                            "component": "Camera", 
-                            "camera_name": camera_name,
-                            "person_id": person_id,
-                            "confidence": f"{confidence:.3f}",
-                            "dataset_id": DATASET_ID,
-                            "fall_detected": "true",
-                            "alert_priority": "critical"
-                        },
-                        "method_name": "ReadImage",
-                        "component_type": "camera",
-                        "component_name": camera_name
-                    }
-                    
-                    LOGGER.info(f"🏷️ Capturing with tags: Fall detection on {camera_name}")
-                    
-                    # Execute the doCommand to trigger tagged data capture
-                    result = await vision_service.do_command(capture_command)
-                    
-                    LOGGER.info(f"✅ Vision service data capture completed: {result}")
-                    LOGGER.info(f"🎯 Component: {camera_name} → Dataset: {DATASET_ID} (tagged)")
-                    LOGGER.info("📋 Tags: event_type=Fall, component=Camera")
-                    
-                    return result
-                    
-                except Exception as vision_error:
-                    LOGGER.error(f"❌ Vision service doCommand failed: {vision_error}")
-                    LOGGER.info("🔄 Falling back to file-based method")
-                    
-            # Fallback: Save to local file system for DataManager to sync
-            LOGGER.info("🔄 Using fallback file-based sync method")rt Viam DataManager service
+# Try to import Viam DataManager service
 try:
     from viam.services.data_manager import DataManager
     VIAM_DATA_AVAILABLE = True
@@ -209,7 +165,8 @@ class FallDetectionAlerts:
                             confidence: float,
                             image: ViamImage,
                             metadata: Optional[Dict[str, Any]] = None,
-                            data_manager=None) -> bool:
+                            data_manager=None,
+                            vision_service=None) -> bool:
         """Send fall detection alert via Twilio SMS"""
         
         try:
@@ -222,7 +179,7 @@ class FallDetectionAlerts:
             self.last_alert_time[person_id] = timestamp
             
             # Save image to Viam-monitored directory for automatic sync
-            await self.save_fall_image(camera_name, person_id, confidence, image, data_manager)
+            await self.save_fall_image(camera_name, person_id, confidence, image, data_manager, vision_service)
             
             # Save image locally for SMS reference
             image_path = await self.save_image_locally(image, person_id)
@@ -260,7 +217,8 @@ class FallDetectionAlerts:
                 person_id=person_id,
                 confidence=confidence,
                 timestamp=timestamp,
-                metadata=metadata
+                metadata=metadata,
+                image=image
             )
             
             if push_success:
@@ -309,140 +267,278 @@ class FallDetectionAlerts:
             LOGGER.error(f"❌ Error sending test alert: {e}")
             return False
     
-    async def send_push_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def send_push_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
         """Send push notification to rigguardian.com web app"""
         try:
             # For web-based apps, use webhook approach (not Twilio Notify)
             # Twilio Notify is for mobile apps only
-            return await self.send_webhook_notification(camera_name, person_id, confidence, timestamp, metadata)
+            return await self.send_webhook_notification(camera_name, person_id, confidence, timestamp, metadata, image)
                 
         except Exception as e:
             LOGGER.error(f"❌ Error sending push notification: {e}")
             return False
     
-    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
         """Send notification via webhook to rigguardian.com web app"""
         try:
             import aiohttp
             import json
             
-            # Create webhook payload optimized for web app notifications
+            # Create webhook payload matching rigguardian.com expected structure exactly
             webhook_data = {
-                "alert_type": "fall_detection",
+                "alert_type": "fall",
                 "timestamp": timestamp.isoformat(),
                 "camera_name": camera_name,
                 "person_id": person_id,
                 "confidence": confidence,
                 "severity": "critical",
-                "location": camera_name,
+                "location": camera_name,  # Using camera name as location
                 "title": "🚨 Fall Alert - Immediate Action Required",
                 "message": f"Fall detected on {camera_name} with {confidence:.1%} confidence",
                 "requires_immediate_attention": True,
-                "notification_type": "web_push",  # Indicate this is for web app
-                "metadata": metadata or {},
-                "actions": [
-                    {"action": "view_camera", "title": "View Camera"},
-                    {"action": "acknowledge", "title": "Acknowledge"},
-                    {"action": "dispatch_help", "title": "Send Help"}
-                ]
+                "notification_type": "web_push"
             }
             
-            LOGGER.info(f"🔄 Sending webhook notification to rigguardian.com web app")
-            LOGGER.info(f"📊 Payload: {camera_name} fall alert at {timestamp.strftime('%H:%M:%S')}")
+            LOGGER.info(f"🔄 Sending webhook to rigguardian.com with expected structure")
+            LOGGER.info(f"📊 Fall alert: {camera_name} at {timestamp.strftime('%H:%M:%S')} ({confidence:.1%} confidence)")
             
-            # Send HTTP POST to rigguardian.com
+            # Debug: Log the payload structure more concisely to avoid truncation
+            LOGGER.info(f"� Payload types: alert_type={type(webhook_data['alert_type']).__name__}, timestamp={type(webhook_data['timestamp']).__name__}, camera_name={type(webhook_data['camera_name']).__name__}")
+            LOGGER.info(f"🔧 More types: person_id={type(webhook_data['person_id']).__name__}({webhook_data['person_id']}), confidence={type(webhook_data['confidence']).__name__}({webhook_data['confidence']})")
+            LOGGER.info(f"🔧 Final types: severity={type(webhook_data['severity']).__name__}, requires_immediate_attention={type(webhook_data['requires_immediate_attention']).__name__}")
+            
+            # Show a compact version of the payload
+            LOGGER.info(f"🔍 Compact payload: alert_type='{webhook_data['alert_type']}', person_id='{webhook_data['person_id']}', confidence={webhook_data['confidence']}")
+            LOGGER.info(f"🔍 Full JSON: {json.dumps(webhook_data, separators=(',', ':'))}")  # Compact JSON
+            
+            # First, try sending to the main endpoint
+            success = await self._try_webhook_endpoint(webhook_data, self.push_notification_url, "main")
+            if success:
+                return True
+            
+            # Test if endpoint is reachable with a simple GET request
+            LOGGER.info("🔄 Testing if rigguardian.com endpoint is reachable...")
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(self.push_notification_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                        LOGGER.info(f"🌐 GET {self.push_notification_url} returned {response.status}")
+                        if response.status == 404:
+                            LOGGER.error("❌ API endpoint not found - check if /api/fall-alert exists")
+                        elif response.status == 405:
+                            LOGGER.info("✅ Endpoint exists but only accepts POST (this is expected)")
+            except Exception as e:
+                LOGGER.error(f"❌ Cannot reach endpoint: {e}")
+            
+            # If main endpoint fails, try alternative approaches
+            LOGGER.info("🔄 Main endpoint failed, trying alternative approaches...")
+            
+            # Try without emojis in case they're causing encoding issues
+            webhook_data_no_emoji = webhook_data.copy()
+            webhook_data_no_emoji["title"] = "Fall Alert - Immediate Action Required"
+            webhook_data_no_emoji["message"] = f"Fall detected on {camera_name} with {confidence:.1%} confidence"
+            
+            success = await self._try_webhook_endpoint(webhook_data_no_emoji, self.push_notification_url, "no-emoji")
+            if success:
+                return True
+            
+            # Try with string confidence (in case number is causing issues)
+            webhook_data_str = webhook_data_no_emoji.copy()
+            webhook_data_str["confidence"] = f"{confidence:.3f}"
+            
+            success = await self._try_webhook_endpoint(webhook_data_str, self.push_notification_url, "string-confidence")
+            if success:
+                return True
+            
+            # Try with minimal required fields only
+            webhook_data_minimal = {
+                "alert_type": "fall",
+                "timestamp": timestamp.isoformat(),
+                "camera_name": camera_name,
+                "person_id": str(person_id),  # Ensure it's a string
+                "confidence": confidence,
+                "severity": "critical",
+                "location": camera_name,
+                "title": "Fall Alert",
+                "message": "Fall detected",
+                "requires_immediate_attention": True,
+                "notification_type": "web_push"
+            }
+            
+    async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
+        """Send notification via webhook to rigguardian.com web app"""
+        
+        # TEMPORARILY DISABLED - Webhook integration pending API validation fix
+        LOGGER.info("🔄 Webhook notifications temporarily disabled")
+        LOGGER.info(f"📊 Would send webhook: {camera_name} fall alert at {timestamp.strftime('%H:%M:%S')} ({confidence:.1%} confidence)")
+        LOGGER.info("💡 SMS alerts are still working perfectly!")
+        LOGGER.info("🛠️ Run 'python webhook_debug.py' to test different payload formats")
+        
+        # For now, webhooks are disabled to ensure SMS alerts continue working
+        return False
+    
+    async def _try_webhook_endpoint(self, payload: dict, url: str, attempt_name: str) -> bool:
+        """Try sending webhook to a specific endpoint with detailed logging"""
+        try:
+            import aiohttp
+            import json
+            
+            LOGGER.info(f"🔄 Trying {attempt_name} approach to {url}")
+            
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    self.push_notification_url,
-                    json=webhook_data,
+                    url,
+                    json=payload,
                     headers={
                         'Content-Type': 'application/json',
                         'User-Agent': 'FallDetectionSystem/1.0',
-                        'X-Alert-Type': 'fall_detection',
-                        'X-Severity': 'critical'
+                        'X-Alert-Type': 'fall',
+                        'X-Severity': 'critical',
+                        'Accept': 'application/json'
                     },
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     response_text = await response.text()
+                    response_headers = dict(response.headers)
+                    
+                    LOGGER.info(f"📡 {attempt_name} response status: {response.status}")
+                    LOGGER.info(f"📋 {attempt_name} response headers: {response_headers}")
+                    LOGGER.info(f"� {attempt_name} response body: {response_text}")
                     
                     if response.status == 200:
-                        LOGGER.info(f"✅ Web notification sent to rigguardian.com successfully")
-                        LOGGER.info(f"📱 Response: {response_text}")
+                        LOGGER.info(f"✅ {attempt_name} webhook sent successfully")
                         return True
                     else:
-                        LOGGER.error(f"❌ Webhook failed with status {response.status}")
-                        LOGGER.error(f"❌ Response: {response_text}")
+                        LOGGER.error(f"❌ {attempt_name} webhook failed with status {response.status}")
+                        
+                        # Try to parse response as JSON for error details
+                        try:
+                            response_json = json.loads(response_text)
+                            LOGGER.error(f"🔍 {attempt_name} parsed error: {json.dumps(response_json, indent=2)}")
+                            if "error" in response_json:
+                                LOGGER.error(f"� {attempt_name} server error: {response_json['error']}")
+                            if "expected" in response_json:
+                                LOGGER.error(f"💡 {attempt_name} expected format: {response_json['expected']}")
+                            if "details" in response_json:
+                                LOGGER.error(f"📝 {attempt_name} error details: {response_json['details']}")
+                        except json.JSONDecodeError:
+                            LOGGER.error(f"📄 {attempt_name} response is not valid JSON")
+                        
                         return False
                         
-        except ImportError:
-            LOGGER.error("❌ aiohttp not installed - cannot send webhook notifications")
-            LOGGER.error("💡 Install with: pip install aiohttp")
-            return False
         except aiohttp.ClientTimeout:
-            LOGGER.error("❌ Webhook request timed out (>10 seconds)")
-            return False
-        except aiohttp.ClientError as e:
-            LOGGER.error(f"❌ HTTP client error: {e}")
+            LOGGER.error(f"❌ {attempt_name} webhook request timed out")
             return False
         except Exception as e:
-            LOGGER.error(f"❌ Failed to send webhook notification: {e}")
+            LOGGER.error(f"❌ {attempt_name} webhook error: {e}")
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_manager=None, vision_service=None):
-        """Save fall detection image using vision service doCommand with tags or fallback to file-based sync"""
+        """Save fall detection image using data manager camera capture with Fall tag"""
         try:
+            LOGGER.info(f"🔄 Triggering fall image capture for camera: {camera_name}")
+            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Person: {person_id}, Confidence: {confidence:.3f}")
+            
+            # Use data manager to capture from camera with Fall tag
+            if data_manager and vision_service:
+                try:
+                    # Get the camera component name from the vision service
+                    # The vision service should have access to the camera it depends on
+                    
+                    LOGGER.info(f"🏷️ Triggering data manager capture with Fall tag for camera: {camera_name}")
+                    
+                    # Use data manager's capture functionality with tags
+                    # The data manager will capture from the camera component with the Fall tag
+                    capture_result = await data_manager.capture(
+                        component_name=camera_name,
+                        method_name="ReadImage",
+                        tags=["Fall"],
+                        additional_metadata={
+                            "person_id": person_id,
+                            "confidence": f"{confidence:.3f}",
+                            "event_type": "fall_detected",
+                            "vision_service": "yolov8n-pose"
+                        }
+                    )
+                    
+                    LOGGER.info(f"✅ Data manager capture completed: {capture_result}")
+                    LOGGER.info(f"🎯 Component: {camera_name}, Tag: Fall, Person: {person_id}")
+                    
+                    return {"status": "success", "method": "data_manager_capture", "result": capture_result}
+                    
+                except Exception as dm_error:
+                    LOGGER.error(f"❌ Data manager capture failed: {dm_error}")
+                    LOGGER.info("🔄 Falling back to file-based method")
+                    
+                    # Fallback: Save to the data manager's capture directory
+                    return await self._save_fall_image_to_file(camera_name, person_id, confidence, image)
+                    
+            else:
+                LOGGER.warning("⚠️ No data manager or vision service provided - using file-based fallback")
+                return await self._save_fall_image_to_file(camera_name, person_id, confidence, image)
+                
+        except Exception as e:
+            LOGGER.error(f"❌ Error in save_fall_image: {e}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            return {"status": "error", "method": "save_fall_image", "error": str(e)}
+    
+    async def _save_fall_image_to_file(self, camera_name: str, person_id: str, confidence: float, image: ViamImage):
+        """Fallback method to save image directly to data manager's capture directory"""
+        try:
+            from datetime import datetime
+            import os
+            
+            # Use the data manager's capture directory
+            capture_dir = "/home/sunil/Documents/viam_captured_images"
             timestamp = datetime.utcnow()
-            DATASET_ID = "68851ef0628dd018729e9541"
             
-            LOGGER.info(f"🔄 Saving fall image for DataManager to sync to dataset")
-            LOGGER.info(f"� Image size: {len(image.data)} bytes, Component: {camera_name}")
-            
-            # Use exact timestamp format that Viam data manager expects
-            # Format: YYYY-MM-DDTHH:MM:SS.fffffffZ (RFC3339 with microseconds)
+            # Create filename with proper Viam naming convention for data manager to recognize
+            # Format: [timestamp]_[component_name]_[method_name].[extension]
             timestamp_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-            
-            # Viam expects: [timestamp]_[component_name]_[method_name].[extension]
             filename = f"{timestamp_str}_{camera_name}_ReadImage.jpg"
-            filepath = f"/home/sunil/Documents/viam_captured_images/{filename}"
-            
-            LOGGER.info(f"🔄 Saving with Viam naming convention: {filename}")
-            LOGGER.info(f"📊 Image size: {len(image.data)} bytes, Component: {camera_name}")
+            filepath = os.path.join(capture_dir, filename)
             
             # Ensure directory exists
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            os.makedirs(capture_dir, exist_ok=True)
             
             # Save the image
             with open(filepath, 'wb') as f:
                 f.write(image.data)
             
-            # Create a .txt metadata file with the same timestamp and component
-            metadata_filename = f"{timestamp_str}_{camera_name}_FallData.txt"
-            metadata_filepath = f"/home/sunil/Documents/viam_captured_images/{metadata_filename}"
+            # Create metadata file with Fall tag for data manager to process
+            metadata_filename = f"{timestamp_str}_{camera_name}_ReadImage.json"
+            metadata_filepath = os.path.join(capture_dir, metadata_filename)
             
-            metadata_content = f"""FALL_DETECTION_EVENT
-timestamp: {timestamp.isoformat()}
-component: {camera_name}
-person_id: {person_id}
-confidence: {confidence:.3f}
-dataset_id: {DATASET_ID}
-event_type: fall_detected
-method_name: ReadImage
-component_type: camera
-"""
+            import json
+            metadata_content = {
+                "component_name": camera_name,
+                "method_name": "ReadImage",
+                "tags": ["Fall"],
+                "timestamp": timestamp.isoformat(),
+                "additional_metadata": {
+                    "person_id": person_id,
+                    "confidence": f"{confidence:.3f}",
+                    "event_type": "fall_detected",
+                    "vision_service": "yolov8n-pose"
+                }
+            }
             
             with open(metadata_filepath, 'w') as meta_f:
-                meta_f.write(metadata_content)
+                json.dump(metadata_content, meta_f, indent=2)
             
             if os.path.exists(filepath):
                 file_size = os.path.getsize(filepath)
                 LOGGER.info(f"✅ Fall image saved: {filename} ({file_size} bytes)")
-                LOGGER.info(f"� Metadata saved: {metadata_filename}")
-                LOGGER.info(f"🎯 Component: {camera_name} → Dataset: 68851ef0628dd018729e9541")
+                LOGGER.info(f"📋 Metadata saved: {metadata_filename}")
+                LOGGER.info(f"🎯 Component: {camera_name}, Tags: ['Fall']")
                 LOGGER.info("🔄 Files will sync to Viam within 1 minute")
+                
+                return {"status": "success", "method": "file_fallback", "filename": filename, "path": filepath}
             else:
                 LOGGER.error(f"❌ Failed to save: {filepath}")
+                return {"status": "error", "method": "file_fallback", "error": "File not saved"}
                 
         except Exception as e:
-            LOGGER.error(f"❌ Error saving fall image: {e}")
-            import traceback
-            LOGGER.error(traceback.format_exc())
+            LOGGER.error(f"❌ Error in file fallback: {e}")
+            return {"status": "error", "method": "file_fallback", "error": str(e)}

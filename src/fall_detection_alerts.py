@@ -65,7 +65,7 @@ class FallDetectionAlerts:
         )
         self.push_notification_url = (
             os.environ.get('RIGGUARDIAN_WEBHOOK_URL') or
-            config.get('rigguardian_webhook_url', 'https://rigguardian.com/api/fall-alert')
+            config.get('rigguardian_webhook_url', 'https://building-sensor-platform-production.up.railway.app/webhook/fall-alert')
         )
         
         # Log what source we're using (without exposing credentials)
@@ -279,7 +279,99 @@ class FallDetectionAlerts:
             return False
     
     async def send_webhook_notification(self, camera_name: str, person_id: str, confidence: float, timestamp: datetime, metadata: Optional[Dict[str, Any]] = None, image: Optional[ViamImage] = None) -> bool:
-        """Send notification via webhook to rigguardian.com web app"""
+        """Send notification via webhook to Railway server"""
+        try:
+            import aiohttp
+            import json
+            import base64
+            
+            # Create webhook payload matching Railway server expected structure
+            webhook_data = {
+                "alert_type": "fall",
+                "camera_name": camera_name,
+                "person_id": str(person_id),
+                "location": f"Camera {camera_name}",  # Default location based on camera
+                "confidence": confidence,
+                "severity": "critical",
+                "title": "Fall Alert Detected",
+                "message": f"Fall detected on {camera_name} with {confidence:.1%} confidence",
+                "requires_immediate_attention": True,
+                "notification_type": "fall_detection",
+                "timestamp": timestamp.isoformat(),
+                "metadata": metadata or {},
+                "actions": [
+                    {"action": "view_camera", "title": "View Camera"},
+                    {"action": "acknowledge", "title": "Acknowledge"}
+                ]
+            }
+            
+            # Add image data if available
+            if image:
+                try:
+                    # Convert image to base64
+                    image_b64 = base64.b64encode(image.data).decode('utf-8')
+                    timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
+                    
+                    webhook_data["image"] = image_b64
+                    webhook_data["image_filename"] = f"fall_alert_{camera_name}_{timestamp_str}.jpg"
+                    
+                    LOGGER.info(f"� Added image data to webhook ({len(image.data)} bytes)")
+                except Exception as e:
+                    LOGGER.warning(f"⚠️ Failed to encode image for webhook: {e}")
+            
+            LOGGER.info(f"🔄 Sending webhook to Railway server")
+            LOGGER.info(f"📊 Fall alert: {camera_name} at {timestamp.strftime('%H:%M:%S')} ({confidence:.1%} confidence)")
+            LOGGER.info(f"🎯 URL: {self.push_notification_url}")
+            
+            # Send to Railway server
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.push_notification_url,
+                    json=webhook_data,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'FallDetectionSystem/1.0',
+                        'X-Alert-Type': 'fall',
+                        'X-Sensor-Type': 'fall_detection',
+                        'Accept': 'application/json'
+                    },
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    response_text = await response.text()
+                    
+                    LOGGER.info(f"📡 Railway server response: {response.status}")
+                    
+                    if response.status == 200:
+                        LOGGER.info("✅ Webhook sent successfully to Railway server")
+                        LOGGER.info(f"📄 Response: {response_text}")
+                        return True
+                    else:
+                        LOGGER.error(f"❌ Railway server webhook failed with status {response.status}")
+                        LOGGER.error(f"📄 Response: {response_text}")
+                        
+                        # Try to parse response for specific error details
+                        try:
+                            response_json = json.loads(response_text)
+                            if "error" in response_json:
+                                LOGGER.error(f"🔍 Server error: {response_json['error']}")
+                            if "missing_fields" in response_json:
+                                LOGGER.error(f"💡 Missing fields: {response_json['missing_fields']}")
+                            if "details" in response_json:
+                                LOGGER.error(f"📝 Details: {response_json['details']}")
+                        except json.JSONDecodeError:
+                            LOGGER.error("📄 Response is not valid JSON")
+                        
+                        return False
+                        
+        except ImportError:
+            LOGGER.error("❌ aiohttp not installed - install with: pip install aiohttp")
+            return False
+        except aiohttp.ClientTimeout:
+            LOGGER.error("❌ Webhook request to Railway server timed out")
+            return False
+        except Exception as e:
+            LOGGER.error(f"❌ Railway server webhook error: {e}")
+            return False
         try:
             import aiohttp
             import json
