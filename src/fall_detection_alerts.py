@@ -302,51 +302,137 @@ class FallDetectionAlerts:
             LOGGER.info(f"🔄 Sending webhook to rigguardian.com with expected structure")
             LOGGER.info(f"📊 Fall alert: {camera_name} at {timestamp.strftime('%H:%M:%S')} ({confidence:.1%} confidence)")
             
-            # Debug: Log the payload structure
-            LOGGER.info(f"🔍 Rigguardian payload: {json.dumps(webhook_data, indent=2)}")
+            # Debug: Log the payload structure more concisely to avoid truncation
+            LOGGER.info(f"� Payload types: alert_type={type(webhook_data['alert_type']).__name__}, timestamp={type(webhook_data['timestamp']).__name__}, camera_name={type(webhook_data['camera_name']).__name__}")
+            LOGGER.info(f"🔧 More types: person_id={type(webhook_data['person_id']).__name__}({webhook_data['person_id']}), confidence={type(webhook_data['confidence']).__name__}({webhook_data['confidence']})")
+            LOGGER.info(f"🔧 Final types: severity={type(webhook_data['severity']).__name__}, requires_immediate_attention={type(webhook_data['requires_immediate_attention']).__name__}")
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.push_notification_url,
-                    json=webhook_data,
-                    headers={
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'FallDetectionSystem/1.0',
-                        'X-Alert-Type': 'fall',
-                        'X-Severity': 'critical'
-                    },
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response_text = await response.text()
-                    
-                    if response.status == 200:
-                        LOGGER.info(f"✅ Webhook sent successfully to rigguardian.com")
-                        LOGGER.info(f"📱 Response: {response_text}")
-                        return True
-                    else:
-                        LOGGER.error(f"❌ Webhook failed with status {response.status}")
-                        LOGGER.error(f"❌ Response: {response_text}")
-                        
-                        # Try to parse response as JSON for error details
-                        try:
-                            response_json = json.loads(response_text)
-                            if "error" in response_json:
-                                LOGGER.error(f"🔍 Server error: {response_json['error']}")
-                            if "expected" in response_json:
-                                LOGGER.error(f"💡 Expected format: {response_json['expected']}")
-                        except:
-                            pass
-                        
-                        return False
+            # Show a compact version of the payload
+            LOGGER.info(f"🔍 Compact payload: alert_type='{webhook_data['alert_type']}', person_id='{webhook_data['person_id']}', confidence={webhook_data['confidence']}")
+            LOGGER.info(f"🔍 Full JSON: {json.dumps(webhook_data, separators=(',', ':'))}")  # Compact JSON
+            
+            # First, try sending to the main endpoint
+            success = await self._try_webhook_endpoint(webhook_data, self.push_notification_url, "main")
+            if success:
+                return True
+            
+            # Test if endpoint is reachable with a simple GET request
+            LOGGER.info("🔄 Testing if rigguardian.com endpoint is reachable...")
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(self.push_notification_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                        LOGGER.info(f"🌐 GET {self.push_notification_url} returned {response.status}")
+                        if response.status == 404:
+                            LOGGER.error("❌ API endpoint not found - check if /api/fall-alert exists")
+                        elif response.status == 405:
+                            LOGGER.info("✅ Endpoint exists but only accepts POST (this is expected)")
+            except Exception as e:
+                LOGGER.error(f"❌ Cannot reach endpoint: {e}")
+            
+            # If main endpoint fails, try alternative approaches
+            LOGGER.info("🔄 Main endpoint failed, trying alternative approaches...")
+            
+            # Try without emojis in case they're causing encoding issues
+            webhook_data_no_emoji = webhook_data.copy()
+            webhook_data_no_emoji["title"] = "Fall Alert - Immediate Action Required"
+            webhook_data_no_emoji["message"] = f"Fall detected on {camera_name} with {confidence:.1%} confidence"
+            
+            success = await self._try_webhook_endpoint(webhook_data_no_emoji, self.push_notification_url, "no-emoji")
+            if success:
+                return True
+            
+            # Try with string confidence (in case number is causing issues)
+            webhook_data_str = webhook_data_no_emoji.copy()
+            webhook_data_str["confidence"] = f"{confidence:.3f}"
+            
+            success = await self._try_webhook_endpoint(webhook_data_str, self.push_notification_url, "string-confidence")
+            if success:
+                return True
+            
+            # Try with minimal required fields only
+            webhook_data_minimal = {
+                "alert_type": "fall",
+                "timestamp": timestamp.isoformat(),
+                "camera_name": camera_name,
+                "person_id": str(person_id),  # Ensure it's a string
+                "confidence": confidence,
+                "severity": "critical",
+                "location": camera_name,
+                "title": "Fall Alert",
+                "message": "Fall detected",
+                "requires_immediate_attention": True,
+                "notification_type": "web_push"
+            }
+            
+            success = await self._try_webhook_endpoint(webhook_data_minimal, self.push_notification_url, "minimal")
+            if success:
+                return True
+            
+            LOGGER.error("❌ All webhook attempts failed")
+            return False
                         
         except ImportError:
             LOGGER.error("❌ aiohttp not installed - install with: pip install aiohttp")
             return False
-        except aiohttp.ClientTimeout:
-            LOGGER.error("❌ Webhook request timed out")
-            return False
         except Exception as e:
             LOGGER.error(f"❌ Webhook error: {e}")
+            return False
+    
+    async def _try_webhook_endpoint(self, payload: dict, url: str, attempt_name: str) -> bool:
+        """Try sending webhook to a specific endpoint with detailed logging"""
+        try:
+            import aiohttp
+            import json
+            
+            LOGGER.info(f"🔄 Trying {attempt_name} approach to {url}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'FallDetectionSystem/1.0',
+                        'X-Alert-Type': 'fall',
+                        'X-Severity': 'critical',
+                        'Accept': 'application/json'
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    response_text = await response.text()
+                    response_headers = dict(response.headers)
+                    
+                    LOGGER.info(f"📡 {attempt_name} response status: {response.status}")
+                    LOGGER.info(f"📋 {attempt_name} response headers: {response_headers}")
+                    LOGGER.info(f"� {attempt_name} response body: {response_text}")
+                    
+                    if response.status == 200:
+                        LOGGER.info(f"✅ {attempt_name} webhook sent successfully")
+                        return True
+                    else:
+                        LOGGER.error(f"❌ {attempt_name} webhook failed with status {response.status}")
+                        
+                        # Try to parse response as JSON for error details
+                        try:
+                            response_json = json.loads(response_text)
+                            LOGGER.error(f"🔍 {attempt_name} parsed error: {json.dumps(response_json, indent=2)}")
+                            if "error" in response_json:
+                                LOGGER.error(f"� {attempt_name} server error: {response_json['error']}")
+                            if "expected" in response_json:
+                                LOGGER.error(f"💡 {attempt_name} expected format: {response_json['expected']}")
+                            if "details" in response_json:
+                                LOGGER.error(f"📝 {attempt_name} error details: {response_json['details']}")
+                        except json.JSONDecodeError:
+                            LOGGER.error(f"📄 {attempt_name} response is not valid JSON")
+                        
+                        return False
+                        
+        except aiohttp.ClientTimeout:
+            LOGGER.error(f"❌ {attempt_name} webhook request timed out")
+            return False
+        except Exception as e:
+            LOGGER.error(f"❌ {attempt_name} webhook error: {e}")
             return False
     
     async def save_fall_image(self, camera_name: str, person_id: str, confidence: float, image: ViamImage, data_manager=None, vision_service=None):
