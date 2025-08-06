@@ -1,0 +1,13 @@
+﻿{
+  "module_id": "rig-guardian:yolov8n-detection",
+  "visibility": "private",
+  "url": "",
+  "description": "YOLOv8 pose detection service for human pose detection",
+  "models": [
+    {
+      "api": "rdk:service:vision",
+      "model": "rig-guardian:yolov8n-pose:yolov8n-detection"
+    }
+  ],
+  "entrypoint": "main.py"
+}

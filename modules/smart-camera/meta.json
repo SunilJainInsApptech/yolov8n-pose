@@ -1,0 +1,13 @@
+﻿{
+  "module_id": "rig-guardian:smart-camera",
+  "visibility": "private",
+  "url": "", 
+  "description": "Smart camera wrapper with configurable pose detection and fall alerts",
+  "models": [
+    {
+      "api": "rdk:component:camera",
+      "model": "rig-guardian:smart-camera:smart-camera"
+    }
+  ],
+  "entrypoint": "main.py"
+}

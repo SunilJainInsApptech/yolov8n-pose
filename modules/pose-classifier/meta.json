@@ -1,0 +1,13 @@
+﻿{
+  "module_id": "rig-guardian:pose-classifier",
+  "visibility": "private", 
+  "url": "",
+  "description": "Pose classification service with fall detection and alerts",
+  "models": [
+    {
+      "api": "rdk:service:generic",
+      "model": "rig-guardian:pose-classifier:pose-classifier"
+    }
+  ],
+  "entrypoint": "main.py"
+}

@@ -2,31 +2,190 @@
   "modules": [
     {
       "name": "yolov8n-pose",
-      "type": "registry",
+      "type": "registry", 
       "module_id": "rig-guardian:yolov8n-pose:yolov8n-pose",
       "version": "latest"
+    },
+    {
+      "name": "pose-classifier",
+      "type": "local",
+      "executable_path": "./pose_classifier_module"
+    },
+    {
+      "name": "smart-camera",
+      "type": "local", 
+      "executable_path": "./smart_camera_module"
     }
   ],
   "services": [
     {
-      "name": "yolov8-pose-detector",
+      "name": "yolo-detector",
       "type": "vision",
       "namespace": "rdk",
       "model": "rig-guardian:yolov8n-pose:yolov8n-pose",
       "attributes": {
         "model_location": "yolov8n-pose.pt",
-        "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib"
+        "task": "detect"
+      }
+    },
+    {
+      "name": "pose-classifier-service",
+      "type": "generic",
+      "namespace": "rdk", 
+      "model": "rig-guardian:pose-classifier:pose-classifier",
+      "attributes": {
+        "pose_classifier_path": "/home/sunil/yolov8n-pose/pose_classifier.joblib",
+        "fall_confidence_threshold": 0.7,
+        "alert_cooldown_seconds": 300,
+        "railway_webhook_url": "https://building-sensor-platform-production.up.railway.app/webhook/fall-alert"
       }
     }
   ],
   "components": [
     {
-      "name": "camera",
+      "name": "physical-camera-1",
+      "type": "camera",
+      "namespace": "rdk", 
+      "model": "rtsp",
+      "attributes": {
+        "rtsp_address": "rtsp://your-camera-1-ip:554/stream"
+      }
+    },
+    {
+      "name": "physical-camera-2", 
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rtsp", 
+      "attributes": {
+        "rtsp_address": "rtsp://your-camera-2-ip:554/stream"
+      }
+    },
+    {
+      "name": "physical-camera-3",
       "type": "camera", 
       "namespace": "rdk",
-      "model": "webcam",
+      "model": "rtsp",
       "attributes": {
-        "video_path": "0"
+        "rtsp_address": "rtsp://your-camera-3-ip:554/stream"
+      }
+    },
+    {
+      "name": "physical-camera-4",
+      "type": "camera",
+      "namespace": "rdk", 
+      "model": "rtsp",
+      "attributes": {
+        "rtsp_address": "rtsp://your-camera-4-ip:554/stream"
+      }
+    },
+    {
+      "name": "physical-camera-5",
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rtsp", 
+      "attributes": {
+        "rtsp_address": "rtsp://your-camera-5-ip:554/stream"
+      }
+    },
+    {
+      "name": "physical-camera-6",
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rtsp",
+      "attributes": {
+        "rtsp_address": "rtsp://your-camera-6-ip:554/stream" 
+      }
+    },
+    {
+      "name": "smart-camera-1",
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rig-guardian:smart-camera:camera-wrapper", 
+      "attributes": {
+        "base_camera": "physical-camera-1",
+        "camera_location": "Front Entrance",
+        "yolo_service": "yolo-detector", 
+        "pose_classification_service": "pose-classifier-service",
+        "detection_confidence_threshold": 0.5,
+        "enable_pose_classification": true,
+        "enable_fall_alerts": true,
+        "fall_confidence_threshold": 0.7
+      }
+    },
+    {
+      "name": "smart-camera-2",
+      "type": "camera",
+      "namespace": "rdk", 
+      "model": "rig-guardian:smart-camera:camera-wrapper",
+      "attributes": {
+        "base_camera": "physical-camera-2", 
+        "camera_location": "Back Entrance",
+        "yolo_service": "yolo-detector",
+        "pose_classification_service": "pose-classifier-service",
+        "detection_confidence_threshold": 0.5,
+        "enable_pose_classification": true, 
+        "enable_fall_alerts": true,
+        "fall_confidence_threshold": 0.7
+      }
+    },
+    {
+      "name": "smart-camera-3",
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rig-guardian:smart-camera:camera-wrapper",
+      "attributes": {
+        "base_camera": "physical-camera-3",
+        "camera_location": "Lobby Area", 
+        "yolo_service": "yolo-detector",
+        "pose_classification_service": "pose-classifier-service",
+        "detection_confidence_threshold": 0.5,
+        "enable_pose_classification": true,
+        "enable_fall_alerts": true,
+        "fall_confidence_threshold": 0.7
+      }
+    },
+    {
+      "name": "smart-camera-4", 
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rig-guardian:smart-camera:camera-wrapper",
+      "attributes": {
+        "base_camera": "physical-camera-4",
+        "camera_location": "Hallway",
+        "yolo_service": "yolo-detector", 
+        "pose_classification_service": "pose-classifier-service",
+        "detection_confidence_threshold": 0.5,
+        "enable_pose_classification": true,
+        "enable_fall_alerts": true,
+        "fall_confidence_threshold": 0.7
+      }
+    },
+    {
+      "name": "simple-camera-5",
+      "type": "camera",
+      "namespace": "rdk",
+      "model": "rig-guardian:smart-camera:camera-wrapper",
+      "attributes": {
+        "base_camera": "physical-camera-5",
+        "camera_location": "Storage Room", 
+        "yolo_service": "yolo-detector",
+        "detection_confidence_threshold": 0.4,
+        "enable_pose_classification": false,
+        "enable_fall_alerts": false
+      }
+    },
+    {
+      "name": "simple-camera-6",
+      "type": "camera", 
+      "namespace": "rdk",
+      "model": "rig-guardian:smart-camera:camera-wrapper",
+      "attributes": {
+        "base_camera": "physical-camera-6",
+        "camera_location": "Parking Area",
+        "yolo_service": "yolo-detector", 
+        "detection_confidence_threshold": 0.4,
+        "enable_pose_classification": false,
+        "enable_fall_alerts": false
       }
     }
   ]
