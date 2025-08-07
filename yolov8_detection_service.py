@@ -26,6 +26,7 @@ from viam.components.camera import Camera, ViamImage
 from viam.media.utils.pil import viam_to_pil_image
 from viam.logging import getLogger
 from viam.utils import struct_to_dict
+from viam.module.module import Module
 
 from ultralytics.engine.results import Results
 from ultralytics import YOLO
@@ -42,6 +43,8 @@ class YOLOv8DetectionService(Vision, EasyResource):
     """
     YOLOv8 Detection Service - Pure detection without pose classification
     """
+    
+    SUBTYPE = Vision.SUBTYPE
         
     MODEL: ClassVar[Model] = Model(
         ModelFamily("rig-guardian", "yolov8n-pose"), "yolov8n-detection"
@@ -327,3 +330,22 @@ class YOLOv8DetectionService(Vision, EasyResource):
             return {"confidence_threshold": self.confidence_threshold}
         else:
             return {"error": f"Unknown command: {cmd}"}
+
+
+# Module registration and main function
+import asyncio
+
+async def main():
+    """Main function to run the YOLOv8 detection module"""
+    module = Module.from_args()
+    
+    # Register the YOLOv8 detection service
+    module.add_model_from_registry(
+        YOLOv8DetectionService.SUBTYPE, 
+        YOLOv8DetectionService.MODEL
+    )
+    
+    await module.start()
+
+if __name__ == "__main__":
+    asyncio.run(main())
